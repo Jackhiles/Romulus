@@ -1,0 +1,65 @@
+use reqwest::StatusCode;
+
+pub type Result<T> = std::result::Result<T, Error>;
+
+#[derive(Debug, thiserror::Error)]
+pub enum Error {
+    #[error("invalid server address: {0}")]
+    InvalidUrl(String),
+    #[error("network error: {0}")]
+    Network(#[from] reqwest::Error),
+    #[error("not signed in, or the session expired")]
+    Unauthorized,
+    #[error("the server refused this ({0})")]
+    Forbidden(String),
+    #[error("not found")]
+    NotFound,
+    #[error("server error {status}: {detail}")]
+    Http { status: u16, detail: String },
+    #[error("unexpected response: {0}")]
+    Decode(String),
+}
+
+impl Error {
+    /// The RomM `detail` string for a 400 error, if this is one.
+    pub fn detail(&self) -> Option<&str> {
+        match self {
+            Error::Http {
+                status: 400,
+                detail,
+            } => Some(detail),
+            _ => None,
+        }
+    }
+}
+
+/// FastAPI error bodies look like `{"detail": "..."}`.
+pub(crate) async fn detail_of(resp: reqwest::Response) -> String {
+    let text = resp.text().await.unwrap_or_default();
+    serde_json::from_str::<serde_json::Value>(&text)
+        .ok()
+        .and_then(|v| {
+            v.get("detail").map(|d| {
+                d.as_str()
+                    .map(str::to_string)
+                    .unwrap_or_else(|| d.to_string())
+            })
+        })
+        .unwrap_or(text)
+}
+
+pub(crate) async fn check(resp: reqwest::Response) -> Result<reqwest::Response> {
+    let status = resp.status();
+    if status.is_success() {
+        return Ok(resp);
+    }
+    Err(match status {
+        StatusCode::UNAUTHORIZED => Error::Unauthorized,
+        StatusCode::FORBIDDEN => Error::Forbidden(detail_of(resp).await),
+        StatusCode::NOT_FOUND => Error::NotFound,
+        _ => Error::Http {
+            status: status.as_u16(),
+            detail: detail_of(resp).await,
+        },
+    })
+}

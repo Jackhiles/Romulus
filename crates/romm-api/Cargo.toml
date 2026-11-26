@@ -1,0 +1,20 @@
+[package]
+name = "romm-api"
+description = "Typed client for the parts of the RomM REST API that Romulus uses"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+url.workspace = true
+time.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+wiremock.workspace = true
+tokio = { workspace = true }
