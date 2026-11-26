@@ -3928,6 +3928,7 @@ dependencies = [
 name = "romulus"
 version = "0.1.0"
 dependencies = [
+ "crc32fast",
  "dirs 6.0.0",
  "gilrs",
  "hex",

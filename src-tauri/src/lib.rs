@@ -6,6 +6,7 @@ mod logging;
 pub mod paths;
 mod secrets;
 mod state;
+mod steam;
 
 use state::{AppState, lock};
 use tauri::Manager;
@@ -80,6 +81,7 @@ pub fn run() {
             commands::update_settings,
             commands::debug_info,
             commands::open_keyboard,
+            commands::add_to_steam,
             commands::log_ui,
             commands::quit,
         ])

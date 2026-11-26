@@ -29,6 +29,8 @@ pub struct Status {
     refreshing: bool,
     updatable: bool,
     fullscreen: bool,
+    in_steam: bool,
+    gaming_mode: bool,
 }
 
 #[tauri::command]
@@ -58,6 +60,8 @@ pub async fn status(state: State<'_, AppState>) -> Res<Status> {
         refreshing: state.refreshing.load(Ordering::Relaxed),
         updatable: updater::updatable().is_ok(),
         fullscreen: lock(&state.config).fullscreen,
+        in_steam: crate::steam::has_shortcut(),
+        gaming_mode: crate::steam::in_gaming_mode(),
     })
 }
 
@@ -470,6 +474,15 @@ pub fn open_keyboard() {
     {
         tracing::debug!("could not open Steam keyboard: {e}");
     }
+}
+
+/// Add Romulus itself to Steam as one non-Steam shortcut.
+#[tauri::command]
+pub async fn add_to_steam(state: State<'_, AppState>) -> Res<String> {
+    let dir = state.paths.data_dir.clone();
+    tokio::task::spawn_blocking(move || crate::steam::add_romulus(&dir))
+        .await
+        .map_err(err)?
 }
 
 /// Errors and warnings from the UI, so they end up in the log file.

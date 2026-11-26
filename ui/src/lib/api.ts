@@ -13,6 +13,8 @@ export interface Status {
   refreshing: boolean
   updatable: boolean
   fullscreen: boolean
+  in_steam: boolean
+  gaming_mode: boolean
 }
 
 export interface Platform {
@@ -94,6 +96,7 @@ export const api = {
   updateSettings: (patch: Partial<Settings>) => invoke<void>('update_settings', { patch }),
   debugInfo: () => invoke<string>('debug_info'),
   openKeyboard: () => invoke<void>('open_keyboard'),
+  addToSteam: () => invoke<string>('add_to_steam'),
   quit: () => invoke<void>('quit'),
 }
 

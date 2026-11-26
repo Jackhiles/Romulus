@@ -63,6 +63,21 @@
     }
   }
 
+  let addingToSteam = false
+  async function addToSteam() {
+    if (addingToSteam || status?.in_steam) return
+    addingToSteam = true
+    toast('Adding to Steam…')
+    try {
+      toast(await api.addToSteam(), 'info', 6000)
+      await load()
+    } catch (e) {
+      toast(String(e), 'error', 7000)
+    } finally {
+      addingToSteam = false
+    }
+  }
+
   async function copyDebug() {
     try {
       await writeText(await api.debugInfo())
@@ -113,6 +128,15 @@
         label: 'Log level',
         value: s.log_level,
         cycle: (d) => patch({ log_level: LEVELS[(LEVELS.indexOf(s.log_level) + d + LEVELS.length) % LEVELS.length] }),
+      },
+      {
+        label: 'Add to Steam',
+        value: status.in_steam
+          ? 'Already in your Steam library'
+          : status.gaming_mode
+            ? 'Do this once from Desktop Mode'
+            : 'Add one shortcut for Romulus (restarts Steam)',
+        run: addToSteam,
       },
       { label: 'Copy debug info', value: 'Versions, paths and recent log lines', run: copyDebug },
       { label: 'Sign out', value: 'Forget this device’s RomM credentials', run: async () => { await api.signOut(); onsignout() } },
