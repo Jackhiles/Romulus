@@ -20,10 +20,14 @@ Controller-first RomM client for the Steam Deck. Read `docs/SPEC.md` (what) and
 
 ## Layout
 
-- `crates/romm-api`, `crates/library-cache`, `crates/launcher`, `crates/sync`,
-  `crates/updater`: Rust library crates, no Tauri dependency.
-- `src-tauri/`: Tauri shell (commands, gamepad input, wiring).
-- `ui/`: Svelte 5 + TypeScript frontend.
+- `crates/romm-api`, `crates/library-cache`, `crates/updater` (later `crates/launcher`,
+  `crates/sync`): Rust library crates, no Tauri dependency.
+- `src-tauri/`: Tauri shell (commands, gamepad input, config, secrets, logging, Steam
+  shortcut).
+- `ui/`: Svelte 5 + TypeScript frontend. `ui/src/lib` has the logic (grid math, input
+  routing, API wrappers), `ui/src/screens` one component per screen.
+- `tools/mock-romm/`: fake RomM server (`python3 tools/mock-romm/server.py`) for
+  development and end-to-end checks.
 
 ## Code style
 
@@ -33,15 +37,22 @@ Controller-first RomM client for the Steam Deck. Read `docs/SPEC.md` (what) and
 - TS/Svelte: strict TypeScript, Svelte 5 runes, prettier + eslint. Animate only `transform`
   and `opacity`.
 - Keep Tauri commands thin; logic belongs in the crates where it can be unit tested.
+- Svelte effects: never read state synchronously in an `$effect` that the effect itself
+  writes (directly or through a promise callback that replaces it); wrap such reads in
+  `untrack`. A loop like that floods Rust with commands and freezes rendering.
+- Only the top screen is mounted. Anything a screen must remember across Back goes on its
+  stack entry (`entry.index`, `entry.sort`, `entry.query`).
 
 ## Tests
 
-- `cargo test --workspace` and `npm --prefix ui test` must pass before committing.
+- `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings`,
+  `npm --prefix ui run check` and `npm --prefix ui test` must pass before committing
+  (CI runs the same).
 - API client: tests against a `wiremock` mock server.
 - Sync conflict engine: table-driven tests covering every (local, server, last-synced) case.
 
 ## Git
 
 - Small commits with clear imperative messages (`romm-api: add paged rom listing`).
-- Release: bump the version in `Cargo.toml`/`tauri.conf.json`, tag `vX.Y.Z`. Tags with a `-`
-  are pre-releases and are ignored by the updater.
+- Release: bump `version` in the root `Cargo.toml` (tauri.conf.json takes it from there),
+  tag `vX.Y.Z`. Tags with a `-` are pre-releases and are ignored by the updater.

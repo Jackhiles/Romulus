@@ -24,7 +24,7 @@ the RomM server. It replaces decky-romm-sync, which is slow to sync and a bit cl
 ## Tech stack
 
 - Tauri 2, TypeScript, Svelte 5 frontend, Rust backend for file IO, sync and process launching.
-- SQLite (sqlx).
+- SQLite (rusqlite, bundled with FTS5).
 - Gamepad input, with Steam Input passing through (see ARCHITECTURE.md, "Input").
 - Target: SteamOS (Linux x86_64). AppImage first, Flatpak later.
 - The AppImage updates itself from GitHub Releases, the same way KlikCore2 does.

@@ -1,6 +1,7 @@
 # Romulus architecture
 
-Status: **proposal, awaiting approval.** Nothing here is built yet.
+Status: **Phase 1 built** (approved 2026-11-26). Phases 2-4 below are still plans.
+`docs/DECK_CHECKLIST.md` lists what still needs checking on a real Deck.
 
 ## Overview
 
@@ -31,11 +32,12 @@ without Tauri:
 Cargo.toml                 workspace
 crates/romm-api/           no Tauri, no SQLite
 crates/library-cache/      depends on romm-api types only
-crates/launcher/
-crates/sync/               pure conflict engine + IO adapters
 crates/updater/
-src-tauri/                 app shell: commands, input, wiring, config
+crates/launcher/           (Phase 2)
+crates/sync/               (Phase 3) pure conflict engine + IO adapters
+src-tauri/                 app shell: commands, input, config, secrets, logging, steam
 ui/                        Svelte app (Vite)
+tools/mock-romm/           fake RomM server for development and end-to-end tests
 docs/
 ```
 
@@ -78,7 +80,9 @@ eased animation.
 
 ## Data and cache (`library-cache`)
 
-SQLite at `~/.local/share/romulus/library.db`, WAL mode.
+SQLite via `rusqlite` (bundled, with FTS5) at `~/.local/share/romulus/library-<hash of server
+URL>.db`, WAL mode. One database per server. rusqlite was picked over sqlx: queries are
+small and synchronous, run on `spawn_blocking`, and there is no async driver to set up.
 
 Tables (first cut):
 - `servers(id, url, user, romm_version, last_sync_at)`
@@ -100,15 +104,20 @@ or sort on them.
 2. `GET /api/roms?updated_after=T&limit=500` paged, then upsert in one transaction per page.
 3. `GET /api/roms/identifiers` and `/api/platforms/identifiers`, then delete rows the server
    no longer lists.
-4. Save the new cursor `T` as the time the refresh started (so nothing changed during the
-   refresh is missed). The UI shows "Last synced 3 min ago".
+4. Save the new cursor `T`: the newest `updated_at` the server returned, minus 10 minutes
+   of overlap. Using the server's own timestamps means the Deck's clock doesn't matter;
+   the overlap only causes a few rows to be written twice. The UI shows "Last synced 3 min
+   ago".
 
 The first sync of a big library pages 500 ROMs at a time and the UI fills in live. Later
 refreshes usually move only a few rows.
 
-**Images**: `~/.cache/romulus/covers/<server>/<rom_id>-<updated_at>.webp`. The Rust side
-fetches with the auth header and returns a local `asset://` URL, downscaled to tile size
-on first fetch. An LRU limit (default 1 GB) prunes old covers.
+**Images**: `~/.cache/romulus/covers/<hash of server path>.<ext>`. RomM's cover paths carry
+`?ts=<updated_at>`, so a changed cover gets a new file. The Rust side fetches with the auth
+header; the UI shows the file through Tauri's asset protocol. At most 6 requests run at
+once, newest first, and requests for tiles that scrolled away are dropped. An LRU limit
+(default 1 GB) prunes old covers after each sync. RomM's `small` covers are already
+thumbnail size, so nothing is resized.
 
 ## RomM client (`romm-api`)
 
@@ -205,7 +214,8 @@ are a non-goal.
 
 ## Phase 1 task breakdown
 
-Each task is one or more small commits.
+Each task is one or more small commits. All done except the on-Deck spike (task 2), which
+needs hardware: see `docs/DECK_CHECKLIST.md`.
 
 1. **Scaffold**: Cargo workspace, Tauri 2 app, Svelte 5 + Vite + TS, lint/format (clippy,
    rustfmt, eslint, prettier), CI on push (test + build AppImage), `APP_NAME` constant.
