@@ -1,0 +1,486 @@
+use crate::Result;
+use romm_api::{Platform, Rom};
+use rusqlite::{Connection, OptionalExtension, params};
+use serde::Serialize;
+use std::collections::HashSet;
+use std::path::Path;
+
+/// Schema migrations, applied in order. `PRAGMA user_version` holds how many have run.
+const MIGRATIONS: &[&str] = &[r#"
+CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+
+CREATE TABLE platforms (
+    id          INTEGER PRIMARY KEY,
+    slug        TEXT NOT NULL,
+    fs_slug     TEXT NOT NULL,
+    name        TEXT NOT NULL,
+    rom_count   INTEGER NOT NULL DEFAULT 0,
+    logo        TEXT,
+    updated_at  TEXT,
+    json        TEXT NOT NULL
+);
+
+CREATE TABLE roms (
+    id           INTEGER PRIMARY KEY,
+    platform_id  INTEGER NOT NULL,
+    title        TEXT NOT NULL,
+    sort_key     TEXT NOT NULL,
+    fs_name      TEXT NOT NULL,
+    size_bytes   INTEGER NOT NULL DEFAULT 0,
+    cover_small  TEXT,
+    cover_large  TEXT,
+    ra_id        INTEGER,
+    updated_at   TEXT,
+    json         TEXT NOT NULL
+);
+CREATE INDEX roms_platform_sort ON roms (platform_id, sort_key);
+
+CREATE VIRTUAL TABLE roms_fts USING fts5 (title, alt_names, fs_name, content='', tokenize='unicode61 remove_diacritics 2');
+"#];
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct PlatformRow {
+    pub id: i64,
+    pub slug: String,
+    pub fs_slug: String,
+    pub name: String,
+    /// ROMs in the local cache for this platform.
+    pub rom_count: i64,
+    pub logo: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct RomRow {
+    pub id: i64,
+    pub platform_id: i64,
+    pub title: String,
+    pub fs_name: String,
+    pub size_bytes: i64,
+    pub cover_small: Option<String>,
+    pub cover_large: Option<String>,
+    pub updated_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, Default, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SortOrder {
+    #[default]
+    Title,
+    Newest,
+}
+
+pub struct Cache {
+    conn: Connection,
+}
+
+/// "The Legend of Zelda" sorts under L, like RomM's own sort key.
+fn sort_key(rom: &Rom) -> String {
+    if let Some(k) = rom.name_sort_key.as_deref().filter(|k| !k.is_empty()) {
+        return k.to_lowercase();
+    }
+    let t = rom.title().to_lowercase();
+    for article in ["the ", "a ", "an "] {
+        if let Some(rest) = t.strip_prefix(article) {
+            return rest.to_string();
+        }
+    }
+    t
+}
+
+impl Cache {
+    pub fn open(path: &Path) -> Result<Self> {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let conn = Connection::open(path)?;
+        conn.pragma_update(None, "journal_mode", "WAL")?;
+        conn.pragma_update(None, "synchronous", "NORMAL")?;
+        Self::init(conn)
+    }
+
+    pub fn open_in_memory() -> Result<Self> {
+        Self::init(Connection::open_in_memory()?)
+    }
+
+    fn init(mut conn: Connection) -> Result<Self> {
+        let version: usize = conn.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        let tx = conn.transaction()?;
+        for (i, sql) in MIGRATIONS.iter().enumerate().skip(version) {
+            tx.execute_batch(sql)?;
+            tx.pragma_update(None, "user_version", i + 1)?;
+        }
+        tx.commit()?;
+        Ok(Self { conn })
+    }
+
+    // ---- meta --------------------------------------------------------------------------
+
+    pub fn meta(&self, key: &str) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row("SELECT value FROM meta WHERE key = ?1", [key], |r| r.get(0))
+            .optional()?)
+    }
+
+    pub fn set_meta(&self, key: &str, value: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+            params![key, value],
+        )?;
+        Ok(())
+    }
+
+    // ---- writes ------------------------------------------------------------------------
+
+    pub fn upsert_platforms(&mut self, platforms: &[Platform]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut st = tx.prepare_cached(
+                "INSERT INTO platforms (id, slug, fs_slug, name, rom_count, logo, updated_at, json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
+                 ON CONFLICT(id) DO UPDATE SET slug = excluded.slug, fs_slug = excluded.fs_slug,
+                   name = excluded.name, rom_count = excluded.rom_count, logo = excluded.logo,
+                   updated_at = excluded.updated_at, json = excluded.json",
+            )?;
+            for p in platforms {
+                st.execute(params![
+                    p.id,
+                    p.slug,
+                    p.fs_slug,
+                    p.label(),
+                    p.rom_count,
+                    p.url_logo,
+                    p.updated_at,
+                    serde_json::to_string(p)?
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    pub fn upsert_roms(&mut self, roms: &[Rom]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            // Contentless FTS rows are replaced by deleting with the old values.
+            let mut old = tx.prepare_cached("SELECT title, json FROM roms WHERE id = ?1")?;
+            let mut fts_del = tx.prepare_cached(
+                "INSERT INTO roms_fts (roms_fts, rowid, title, alt_names, fs_name) VALUES ('delete', ?1, ?2, ?3, ?4)",
+            )?;
+            let mut fts_add = tx.prepare_cached(
+                "INSERT INTO roms_fts (rowid, title, alt_names, fs_name) VALUES (?1, ?2, ?3, ?4)",
+            )?;
+            let mut st = tx.prepare_cached(
+                "INSERT INTO roms (id, platform_id, title, sort_key, fs_name, size_bytes, cover_small, cover_large, ra_id, updated_at, json)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)
+                 ON CONFLICT(id) DO UPDATE SET platform_id = excluded.platform_id, title = excluded.title,
+                   sort_key = excluded.sort_key, fs_name = excluded.fs_name, size_bytes = excluded.size_bytes,
+                   cover_small = excluded.cover_small, cover_large = excluded.cover_large, ra_id = excluded.ra_id,
+                   updated_at = excluded.updated_at, json = excluded.json",
+            )?;
+            for r in roms {
+                let previous: Option<(String, String)> = old
+                    .query_row([r.id], |row| Ok((row.get(0)?, row.get(1)?)))
+                    .optional()?;
+                if let Some((title, json)) = previous {
+                    let prev: Rom = serde_json::from_str(&json)?;
+                    fts_del.execute(params![
+                        r.id,
+                        title,
+                        prev.alternative_names.join(" "),
+                        prev.fs_name
+                    ])?;
+                }
+                st.execute(params![
+                    r.id,
+                    r.platform_id,
+                    r.title(),
+                    sort_key(r),
+                    r.fs_name,
+                    r.fs_size_bytes,
+                    r.path_cover_small.as_deref().filter(|s| !s.is_empty()),
+                    r.path_cover_large.as_deref().filter(|s| !s.is_empty()),
+                    r.ra_id,
+                    r.updated_at,
+                    serde_json::to_string(r)?
+                ])?;
+                fts_add.execute(params![
+                    r.id,
+                    r.title(),
+                    r.alternative_names.join(" "),
+                    r.fs_name
+                ])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Remove platforms (and their ROMs) the server no longer lists. Returns how many
+    /// were removed.
+    pub fn retain_platforms(&mut self, keep: &[i64]) -> Result<usize> {
+        let keep: HashSet<i64> = keep.iter().copied().collect();
+        let gone: Vec<i64> = self
+            .ids("SELECT id FROM platforms")?
+            .into_iter()
+            .filter(|id| !keep.contains(id))
+            .collect();
+        if gone.is_empty() {
+            return Ok(0);
+        }
+        let rom_ids: Vec<i64> = {
+            let mut st = self
+                .conn
+                .prepare("SELECT id FROM roms WHERE platform_id = ?1")?;
+            let mut out = Vec::new();
+            for p in &gone {
+                out.extend(
+                    st.query_map([p], |r| r.get::<_, i64>(0))?
+                        .collect::<rusqlite::Result<Vec<_>>>()?,
+                );
+            }
+            out
+        };
+        self.delete_roms(&rom_ids)?;
+        let tx = self.conn.transaction()?;
+        for p in &gone {
+            tx.execute("DELETE FROM platforms WHERE id = ?1", [p])?;
+        }
+        tx.commit()?;
+        Ok(gone.len())
+    }
+
+    /// Remove ROMs the server no longer lists. Returns how many were removed.
+    pub fn retain_roms(&mut self, keep: &[i64]) -> Result<usize> {
+        let keep: HashSet<i64> = keep.iter().copied().collect();
+        let gone: Vec<i64> = self
+            .ids("SELECT id FROM roms")?
+            .into_iter()
+            .filter(|id| !keep.contains(id))
+            .collect();
+        self.delete_roms(&gone)?;
+        Ok(gone.len())
+    }
+
+    fn delete_roms(&mut self, ids: &[i64]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        {
+            let mut old = tx.prepare_cached("SELECT title, json FROM roms WHERE id = ?1")?;
+            let mut fts_del = tx.prepare_cached(
+                "INSERT INTO roms_fts (roms_fts, rowid, title, alt_names, fs_name) VALUES ('delete', ?1, ?2, ?3, ?4)",
+            )?;
+            let mut del = tx.prepare_cached("DELETE FROM roms WHERE id = ?1")?;
+            for id in ids {
+                if let Some((title, json)) = old
+                    .query_row([id], |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })
+                    .optional()?
+                {
+                    let prev: Rom = serde_json::from_str(&json)?;
+                    fts_del.execute(params![
+                        id,
+                        title,
+                        prev.alternative_names.join(" "),
+                        prev.fs_name
+                    ])?;
+                }
+                del.execute([id])?;
+            }
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    fn ids(&self, sql: &str) -> Result<Vec<i64>> {
+        let mut st = self.conn.prepare(sql)?;
+        let ids = st
+            .query_map([], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<i64>>>()?;
+        Ok(ids)
+    }
+
+    // ---- reads -------------------------------------------------------------------------
+
+    /// Platforms that have at least one cached ROM, by name.
+    pub fn platforms(&self) -> Result<Vec<PlatformRow>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT p.id, p.slug, p.fs_slug, p.name, COUNT(r.id), p.logo
+             FROM platforms p JOIN roms r ON r.platform_id = p.id
+             GROUP BY p.id ORDER BY p.name COLLATE NOCASE",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(PlatformRow {
+                    id: r.get(0)?,
+                    slug: r.get(1)?,
+                    fs_slug: r.get(2)?,
+                    name: r.get(3)?,
+                    rom_count: r.get(4)?,
+                    logo: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn roms(&self, platform_id: i64, order: SortOrder) -> Result<Vec<RomRow>> {
+        let sql = match order {
+            SortOrder::Title => {
+                format!("{ROM_SELECT} WHERE platform_id = ?1 ORDER BY sort_key, id")
+            }
+            SortOrder::Newest => format!("{ROM_SELECT} WHERE platform_id = ?1 ORDER BY id DESC"),
+        };
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map([platform_id], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn rom(&self, id: i64) -> Result<Option<(RomRow, serde_json::Value)>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT roms.id, platform_id, title, fs_name, size_bytes, cover_small, cover_large, updated_at, json
+             FROM roms WHERE id = ?1",
+        )?;
+        let row = st
+            .query_row([id], |r| Ok((rom_row(r)?, r.get::<_, String>(8)?)))
+            .optional()?;
+        match row {
+            Some((row, json)) => Ok(Some((row, serde_json::from_str(&json)?))),
+            None => Ok(None),
+        }
+    }
+
+    /// Full-text search over titles, alternative names and file names. Each word matches
+    /// as a prefix ("zel oca" finds "The Legend of Zelda: Ocarina of Time").
+    pub fn search(&self, query: &str, limit: usize) -> Result<Vec<RomRow>> {
+        let terms: Vec<String> = query
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .map(|w| format!("\"{w}\"*"))
+            .collect();
+        if terms.is_empty() {
+            return Ok(Vec::new());
+        }
+        let sql = format!(
+            "{ROM_SELECT} JOIN roms_fts ON roms_fts.rowid = roms.id WHERE roms_fts MATCH ?1 ORDER BY roms_fts.rank LIMIT ?2"
+        );
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map(params![terms.join(" "), limit as i64], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn rom_count(&self) -> Result<i64> {
+        Ok(self
+            .conn
+            .query_row("SELECT COUNT(*) FROM roms", [], |r| r.get(0))?)
+    }
+}
+
+const ROM_SELECT: &str = "SELECT roms.id, roms.platform_id, roms.title, roms.fs_name, roms.size_bytes, roms.cover_small, roms.cover_large, roms.updated_at FROM roms";
+
+fn rom_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RomRow> {
+    Ok(RomRow {
+        id: r.get(0)?,
+        platform_id: r.get(1)?,
+        title: r.get(2)?,
+        fs_name: r.get(3)?,
+        size_bytes: r.get(4)?,
+        cover_small: r.get(5)?,
+        cover_large: r.get(6)?,
+        updated_at: r.get(7)?,
+    })
+}
+
+#[cfg(test)]
+pub(crate) mod tests {
+    use super::*;
+    use serde_json::json;
+
+    pub fn rom(id: i64, platform_id: i64, name: &str) -> Rom {
+        serde_json::from_value(json!({
+            "id": id, "platform_id": platform_id, "name": name, "fs_name": format!("{name}.bin"),
+            "alternative_names": [], "updated_at": "2026-11-20T10:00:00"
+        }))
+        .unwrap()
+    }
+
+    pub fn platform(id: i64, name: &str) -> Platform {
+        serde_json::from_value(
+            json!({"id": id, "slug": name, "fs_slug": name, "name": name, "rom_count": 0}),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn upsert_and_read() {
+        let mut c = Cache::open_in_memory().unwrap();
+        c.upsert_platforms(&[platform(1, "snes"), platform(2, "gba")])
+            .unwrap();
+        c.upsert_roms(&[
+            rom(10, 1, "The Legend of Zelda"),
+            rom(11, 1, "Aladdin"),
+            rom(12, 1, "Contra"),
+        ])
+        .unwrap();
+        let titles: Vec<_> = c
+            .roms(1, SortOrder::Title)
+            .unwrap()
+            .into_iter()
+            .map(|r| r.title)
+            .collect();
+        assert_eq!(titles, ["Aladdin", "Contra", "The Legend of Zelda"]);
+        // gba has no ROMs, so it is hidden.
+        assert_eq!(c.platforms().unwrap().len(), 1);
+        assert_eq!(c.platforms().unwrap()[0].rom_count, 3);
+
+        // Update in place.
+        c.upsert_roms(&[rom(11, 1, "Aladdin (Rev 1)")]).unwrap();
+        assert_eq!(c.rom(11).unwrap().unwrap().0.title, "Aladdin (Rev 1)");
+        assert_eq!(c.rom_count().unwrap(), 3);
+    }
+
+    #[test]
+    fn search_follows_updates_and_deletes() {
+        let mut c = Cache::open_in_memory().unwrap();
+        c.upsert_roms(&[rom(1, 1, "Super Metroid"), rom(2, 1, "Metroid Fusion")])
+            .unwrap();
+        assert_eq!(c.search("metr", 10).unwrap().len(), 2);
+        assert_eq!(c.search("sup met", 10).unwrap()[0].id, 1);
+        c.upsert_roms(&[rom(1, 1, "Super Mario World")]).unwrap();
+        assert_eq!(c.search("metroid", 10).unwrap().len(), 1);
+        assert_eq!(c.search("mario", 10).unwrap()[0].id, 1);
+        c.retain_roms(&[1]).unwrap();
+        assert!(c.search("fusion", 10).unwrap().is_empty());
+        assert!(c.search("  ", 10).unwrap().is_empty());
+        // Quotes and FTS syntax in the query are treated as plain text.
+        assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn retain_removes_missing() {
+        let mut c = Cache::open_in_memory().unwrap();
+        c.upsert_platforms(&[platform(1, "snes"), platform(2, "gba")])
+            .unwrap();
+        c.upsert_roms(&[rom(1, 1, "A"), rom(2, 2, "B"), rom(3, 2, "C")])
+            .unwrap();
+        assert_eq!(c.retain_roms(&[1, 2]).unwrap(), 1);
+        assert_eq!(c.retain_platforms(&[1]).unwrap(), 1);
+        assert_eq!(c.rom_count().unwrap(), 1);
+        assert!(c.rom(2).unwrap().is_none());
+    }
+
+    #[test]
+    fn migrations_are_idempotent() {
+        let dir = tempfile::tempdir().unwrap();
+        let p = dir.path().join("lib.db");
+        Cache::open(&p).unwrap().set_meta("k", "v").unwrap();
+        assert_eq!(
+            Cache::open(&p).unwrap().meta("k").unwrap().as_deref(),
+            Some("v")
+        );
+    }
+}
