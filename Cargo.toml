@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/romm-api", "crates/library-cache", "crates/updater"]
+members = ["src-tauri", "crates/romm-api", "crates/library-cache", "crates/updater"]
 
 [workspace.package]
 version = "0.1.0"

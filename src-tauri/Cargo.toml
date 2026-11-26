@@ -1,0 +1,39 @@
+[package]
+name = "romulus"
+description = "Controller-first RomM client for the Steam Deck"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+default-run = "romulus"
+
+[lib]
+name = "romulus_lib"
+crate-type = ["rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+romm-api.workspace = true
+library-cache.workspace = true
+updater.workspace = true
+tauri = { version = "2", features = ["protocol-asset"] }
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+time.workspace = true
+sha2.workspace = true
+hex.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
+tracing-appender = "0.2"
+toml = "0.9"
+dirs = "6"
+gilrs = "0.11"
+keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
+rand = "0.9"
+
+[dev-dependencies]
+tempfile.workspace = true
