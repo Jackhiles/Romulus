@@ -3,9 +3,17 @@ name: Release
 # Push a tag like v0.2.0 (matching the version in Cargo.toml) to publish a release, or one
 # like v0.2.0-test1 for a pre-release test build. The app's updater (crates/updater)
 # downloads the two files named below from the latest non-pre-release.
+#
+# It can also be started by hand (Actions → Release → Run workflow) with a tag name; the
+# release then creates that tag on the commit it was run from.
 on:
   push:
     tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Tag to create and release, e.g. v0.1.0'
+        required: true
 
 permissions:
   contents: write
@@ -14,6 +22,8 @@ jobs:
   appimage:
     # Ubuntu 22.04's older glibc keeps the AppImage compatible with SteamOS and most distros.
     runs-on: ubuntu-22.04
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
@@ -30,9 +40,10 @@ jobs:
       - name: Tag matches the app version
         run: |
           version=$(cargo metadata --no-deps --format-version 1 | python3 -c 'import json,sys; print(next(p["version"] for p in json.load(sys.stdin)["packages"] if p["name"]=="romulus"))')
-          tag="${GITHUB_REF_NAME#v}"
+          case "$TAG" in v*) ;; *) echo "Tag $TAG must start with v"; exit 1 ;; esac
+          tag="${TAG#v}"
           if [ "${tag%%-*}" != "$version" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version"; exit 1
+            echo "Tag $TAG does not match Cargo.toml version $version"; exit 1
           fi
       - name: Test
         run: |
@@ -46,9 +57,11 @@ jobs:
           sha256sum Romulus-x86_64.AppImage > Romulus-x86_64.AppImage.sha256
       - uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ env.TAG }}
+          target_commitish: ${{ github.sha }}
           files: |
             Romulus-x86_64.AppImage
             Romulus-x86_64.AppImage.sha256
           generate_release_notes: true
           # Tags with a dash (v0.1.2-test1) are test builds: pre-releases, which the updater ignores.
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(env.TAG, '-') }}
