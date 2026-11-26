@@ -65,6 +65,7 @@ ui/node_modules/.bin/tauri build --bundles appimage
 Keyboard works for development: arrows, Enter (A), Esc (B), `x`, `y`, `q`/`e` (LB/RB),
 `[`/`]` (LT/RT), F1 (☰).
 
-Releasing: bump `version` in the root `Cargo.toml`, commit, and push a tag `vX.Y.Z`. The
-release workflow builds the AppImage and publishes it with a checksum. Tags with a dash
+Releasing: bump `version` in the root `Cargo.toml`, commit, and push a tag `vX.Y.Z`, or
+start Actions → Release → Run workflow with the tag name (it creates the tag). The release
+workflow builds the AppImage and publishes it with a checksum. Tags with a dash
 (`v0.2.0-test1`) become pre-releases, which the updater ignores.
