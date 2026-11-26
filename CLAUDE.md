@@ -34,7 +34,7 @@ Controller-first RomM client for the Steam Deck. Read `docs/SPEC.md` (what) and
 - Rust: stable toolchain, `cargo fmt`, `cargo clippy -- -D warnings`. Errors via `thiserror`
   in crates; no `unwrap()` outside tests. Async with tokio. Logging with `tracing`; never
   log tokens or passwords.
-- TS/Svelte: strict TypeScript, Svelte 5 runes, prettier + eslint. Animate only `transform`
+- TS/Svelte: strict TypeScript checked by `svelte-check`, Svelte 5 runes. Animate only `transform`
   and `opacity`.
 - Keep Tauri commands thin; logic belongs in the crates where it can be unit tested.
 - Svelte effects: never read state synchronously in an `$effect` that the effect itself
