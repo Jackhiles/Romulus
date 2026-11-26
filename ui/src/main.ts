@@ -1,9 +1,19 @@
+import { invoke } from '@tauri-apps/api/core'
 import { mount } from 'svelte'
 import './app.css'
 import App from './App.svelte'
+import { startInput } from './lib/input'
 
-const app = mount(App, {
-  target: document.getElementById('app')!,
-})
+startInput()
 
-export default app
+// Send UI errors to the Rust log file (the webview has no console on the Deck).
+function logUi(level: 'error' | 'warn', message: string) {
+  invoke('log_ui', { level, message }).catch(() => {})
+}
+window.addEventListener('error', (e) => logUi('error', `${e.message} at ${e.filename}:${e.lineno}`))
+window.addEventListener('unhandledrejection', (e) => logUi('error', `unhandled rejection: ${String(e.reason)}`))
+
+// Right-click menus and text selection get in the way on a handheld.
+window.addEventListener('contextmenu', (e) => e.preventDefault())
+
+export default mount(App, { target: document.getElementById('app')! })

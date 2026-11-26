@@ -1,5 +1,5 @@
 import { svelte } from '@sveltejs/vite-plugin-svelte'
-import { defineConfig } from 'vite'
+import { defineConfig } from 'vitest/config'
 
 // Tauri expects a fixed dev port and leaves the terminal output alone.
 export default defineConfig({

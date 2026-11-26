@@ -32,8 +32,13 @@ tracing-appender = "0.2"
 toml = "0.9"
 dirs = "6"
 gilrs = "0.11"
+tauri-plugin-clipboard-manager = "2"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 rand = "0.9"
 
 [dev-dependencies]
 tempfile.workspace = true
+
+[features]
+# Serve the built frontend instead of the Vite dev server (set by `tauri build`).
+custom-protocol = ["tauri/custom-protocol"]

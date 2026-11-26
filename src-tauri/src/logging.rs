@@ -16,7 +16,7 @@ pub fn init(log_dir: &Path, level: &str) -> Option<WorkerGuard> {
     let (writer, guard) = tracing_appender::non_blocking(appender);
     // RUST_LOG overrides the configured level.
     let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(format!("warn,romulus={level},romulus_lib={level},romm_api={level},library_cache={level},updater={level}")));
+        .unwrap_or_else(|_| EnvFilter::new(format!("warn,romulus={level},romulus_lib={level},romm_api={level},library_cache={level},updater={level},ui={level}")));
     let _ = tracing_subscriber::registry()
         .with(filter)
         .with(fmt::layer().with_writer(writer).with_ansi(false))

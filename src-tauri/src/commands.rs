@@ -457,6 +457,32 @@ pub async fn debug_info(state: State<'_, AppState>) -> Res<String> {
     ))
 }
 
+/// Ask Steam to show its on-screen keyboard (works in Gaming Mode; elsewhere it does
+/// nothing and the user types normally).
+#[tauri::command]
+pub fn open_keyboard() {
+    if std::env::var_os("SteamDeck").is_none() && std::env::var_os("SteamGamepadUI").is_none() {
+        return;
+    }
+    if let Err(e) = std::process::Command::new("xdg-open")
+        .arg("steam://open/keyboard")
+        .spawn()
+    {
+        tracing::debug!("could not open Steam keyboard: {e}");
+    }
+}
+
+/// Errors and warnings from the UI, so they end up in the log file.
+#[tauri::command]
+pub fn log_ui(level: String, message: String) {
+    let message: String = message.chars().take(2000).collect();
+    match level.as_str() {
+        "error" => tracing::error!(target: "ui", "{message}"),
+        "warn" => tracing::warn!(target: "ui", "{message}"),
+        _ => tracing::info!(target: "ui", "{message}"),
+    }
+}
+
 #[tauri::command]
 pub fn quit(app: AppHandle) {
     app.exit(0);

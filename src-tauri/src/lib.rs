@@ -34,6 +34,7 @@ pub fn run() {
     state.save_config();
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_clipboard_manager::init())
         .manage(state)
         .setup(|app| {
             let handle = app.handle().clone();
@@ -78,6 +79,8 @@ pub fn run() {
             commands::settings,
             commands::update_settings,
             commands::debug_info,
+            commands::open_keyboard,
+            commands::log_ui,
             commands::quit,
         ])
         .run(tauri::generate_context!())
