@@ -12,6 +12,7 @@ pub enum Emulator {
         core: String,
     },
     Pcsx2,
+    Ppsspp,
     /// Anything else, by its ES-DE label (e.g. "DuckStation (Standalone)").
     Other {
         label: String,
@@ -24,6 +25,7 @@ impl Emulator {
         match self {
             Emulator::RetroArch { core } => format!("retroarch-{core}"),
             Emulator::Pcsx2 => "pcsx2".into(),
+            Emulator::Ppsspp => "ppsspp".into(),
             Emulator::Other { label } => label
                 .to_lowercase()
                 .split(|c: char| !c.is_ascii_alphanumeric())
@@ -37,6 +39,7 @@ impl Emulator {
         match self {
             Emulator::RetroArch { core } => format!("RetroArch ({core})"),
             Emulator::Pcsx2 => "PCSX2".into(),
+            Emulator::Ppsspp => "PPSSPP".into(),
             Emulator::Other { label } => label.clone(),
         }
     }
@@ -54,6 +57,9 @@ impl Emulator {
         }
         if command.contains("%EMULATOR_PCSX2%") {
             return Emulator::Pcsx2;
+        }
+        if command.contains("%EMULATOR_PPSSPP%") {
+            return Emulator::Ppsspp;
         }
         Emulator::Other {
             label: label.to_string(),
@@ -190,6 +196,10 @@ mod tests {
       <system><name>ps2</name>
         <command label="PCSX2 (Standalone)">%EMULATOR_PCSX2% -batch %ROM%</command>
       </system>
+      <system><name>psp</name>
+        <command label="PPSSPP (Standalone)">%EMULATOR_PPSSPP% %ROM%</command>
+        <command label="PPSSPP">%EMULATOR_RETROARCH% -L %CORE_RETROARCH%/ppsspp_libretro.so %ROM%</command>
+      </system>
     </systemList>"#;
 
     fn setup(gamelist: Option<&str>) -> (tempfile::TempDir, EsDe) {
@@ -220,6 +230,7 @@ mod tests {
         );
         assert_eq!(e.romm_name(), "retroarch-swanstation");
         assert_eq!(resolve(&es, "ps2", "Game.iso").unwrap(), Emulator::Pcsx2);
+        assert_eq!(resolve(&es, "psp", "Game.iso").unwrap(), Emulator::Ppsspp);
         assert_eq!(resolve(&es, "nope", "x"), None);
     }
 

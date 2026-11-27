@@ -12,6 +12,8 @@ pub struct Dirs {
     pub saves: PathBuf,
     pub retroarch_cfg: PathBuf,
     pub pcsx2_ini: PathBuf,
+    /// PPSSPP's memory stick (holds `PSP/SAVEDATA`).
+    pub ppsspp_memstick: PathBuf,
 }
 
 impl Dirs {
@@ -21,6 +23,8 @@ impl Dirs {
             saves,
             retroarch_cfg: cfg.join("retroarch/retroarch.cfg"),
             pcsx2_ini: cfg.join("PCSX2/inis/PCSX2.ini"),
+            // RetroDECK links PSP/SAVEDATA here to saves/PSP/PPSSPP-SA.
+            ppsspp_memstick: cfg.join("ppsspp"),
         }
     }
 }
@@ -37,6 +41,8 @@ pub struct Located {
     pub ext: &'static str,
     /// Something the player should know before playing (e.g. an unformatted card).
     pub warning: Option<String>,
+    /// The folders are on a PCSX2 folder memory card (which may need formatting).
+    pub pcsx2_card: bool,
 }
 
 /// PCSX2 treats a folder card as formatted only when `_pcsx2_superblock` holds a PS2
@@ -111,6 +117,12 @@ fn card_damaged(card: &Path) -> bool {
         .is_ok_and(|b| !b.is_empty() && b.get(0x16) != Some(&0x6F))
 }
 
+/// RetroArch cores that keep saves somewhere other than `<game>.srm` (memory card
+/// folders or images in the system folder).
+const NON_SRM_CORES: &[&str] = &[
+    "ppsspp", "pcsx2", "lrps2", "pcee2", "dolphin", "flycast", "play",
+];
+
 /// `key = "value"` lines (retroarch.cfg).
 fn cfg_value(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|l| {
@@ -147,6 +159,27 @@ pub fn locate(
     layout: Option<&str>,
 ) -> Result<Located, String> {
     match emu {
+        Emulator::RetroArch { core } if NON_SRM_CORES.contains(&core.as_str()) => Err(format!(
+            "save sync for RetroArch's {core} core isn't supported yet"
+        )),
+        Emulator::Ppsspp => {
+            let dir = dirs.ppsspp_memstick.join("PSP/SAVEDATA");
+            let prefix = match (save_target, layout) {
+                (Some(t), Some("folder-prefix")) if !t.is_empty() => t.to_string(),
+                _ => return Err("RomM doesn't know this game's PSP ID".into()),
+            };
+            Ok(Located {
+                spec: SaveSpec::CardFolders {
+                    card_dir: dir,
+                    prefix,
+                },
+                emulator: emu.romm_name(),
+                upload_name: "autosave.zip".into(),
+                ext: "zip",
+                warning: None,
+                pcsx2_card: false,
+            })
+        }
         Emulator::RetroArch { .. } => {
             let cfg = std::fs::read_to_string(&dirs.retroarch_cfg).unwrap_or_default();
             if cfg_value(&cfg, "sort_savefiles_enable").as_deref() == Some("true") {
@@ -178,6 +211,7 @@ pub fn locate(
                 upload_name: format!("{stem}.srm"),
                 ext: "srm",
                 warning: None,
+                pcsx2_card: false,
             })
         }
         Emulator::Pcsx2 => {
@@ -213,6 +247,7 @@ pub fn locate(
                 upload_name: "autosave.zip".into(),
                 ext: "zip",
                 warning,
+                pcsx2_card: true,
             })
         }
         Emulator::Other { label } => Err(format!("save sync for {label} isn't supported yet")),
@@ -230,7 +265,40 @@ mod tests {
             saves: d.join("saves"),
             retroarch_cfg: d.join("retroarch.cfg"),
             pcsx2_ini: d.join("PCSX2.ini"),
+            ppsspp_memstick: d.join("ppsspp"),
         }
+    }
+
+    #[test]
+    fn ppsspp_uses_savedata_folders_by_game_id() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        let game = Path::new("/sd/retrodeck/roms/psp/3rd Birthday, The (USA).iso");
+        let l = locate(
+            &Emulator::Ppsspp,
+            game,
+            &ds,
+            Some("ULUS10567"),
+            Some("folder-prefix"),
+        )
+        .unwrap();
+        assert_eq!(
+            l.spec,
+            SaveSpec::CardFolders {
+                card_dir: d.path().join("ppsspp/PSP/SAVEDATA"),
+                prefix: "ULUS10567".into()
+            }
+        );
+        assert_eq!(
+            (l.emulator.as_str(), l.ext, l.pcsx2_card),
+            ("ppsspp", "zip", false)
+        );
+        assert!(locate(&Emulator::Ppsspp, game, &ds, None, None).is_err());
+        // RetroArch's PPSSPP core doesn't use .srm files.
+        let core = Emulator::RetroArch {
+            core: "ppsspp".into(),
+        };
+        assert!(locate(&core, game, &ds, None, None).is_err());
     }
 
     #[test]

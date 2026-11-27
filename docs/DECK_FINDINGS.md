@@ -119,3 +119,17 @@ backup.
   fixed it on the Deck: PCSX2 logged `FolderMcd: Indexing slot 0 with filter "SLUS-21008"`
   and the restored save loaded. Romulus now does this before syncing, only for a missing
   or empty superblock, backing up the old file.
+
+## More emulators (save sync)
+
+- RetroDECK's defaults here: PSP PPSSPP (standalone), GameCube/Wii Dolphin, 3DS Azahar,
+  Vita Vita3K, Switch Ryubing, PS3 RPCS3, Xbox xemu; N64, GBA, NDS and Dreamcast use
+  RetroArch cores.
+- PPSSPP: `config/ppsspp/PSP/SAVEDATA` is a link to `saves/PSP/PPSSPP-SA`; each game's
+  saves are folders starting with its ID. RomM has `save_target` (`ULUS10567`,
+  `folder-prefix`) for all 84 PSP games, so PSP saves sync like PCSX2's card folders.
+- DuckStation: per-title memory cards (`Card1Type = PerGameTitle`) in
+  `saves/psx/duckstation/memcards`; named by DuckStation's own title database, so not
+  synced yet (SwanStation is the PS1 default).
+- BIOS: RomM's 23 PS1/PS2 files are all in `bios/` and match RomM's md5; GBA's
+  `gba_bios.bin` is missing; Switch and Xbox firmware need their own layouts.

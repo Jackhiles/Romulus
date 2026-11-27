@@ -41,6 +41,7 @@ fn game(dir: &std::path::Path) -> Located {
         upload_name: "Game.srm".into(),
         ext: "srm",
         warning: None,
+        pcsx2_card: false,
     }
 }
 
