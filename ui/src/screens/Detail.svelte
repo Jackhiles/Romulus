@@ -13,11 +13,12 @@
     type InstallStatus,
     type RomDetail,
     type SaveChoice,
+    type SaveSyncStatus,
     type SaveConflict as Conflict,
   } from '../lib/api'
   import { device, progressText, removed, saveMessage, startDownload } from '../lib/play.svelte'
   import { screenshots } from '../lib/details.svelte'
-  import { hueOf, size } from '../lib/format'
+  import { ago, hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
   import { toast } from '../lib/toast.svelte'
 
@@ -32,16 +33,17 @@
   let confirmRemove = $state(false)
   let conflict = $state<Conflict | null>(null)
   let starting = $state(false)
-  let syncNote = $state<string | null>(null)
+  let sync = $state<SaveSyncStatus | null>(null)
 
   $effect(() => {
     const want = id
-    syncNote = null
+    void device.revision
+    sync = null
     if (status?.state !== 'installed') return
     games
       .saveSyncStatus(want)
       .then((n) => {
-        if (want === id) syncNote = n
+        if (want === id) sync = n
       })
       .catch(() => {})
   })
@@ -73,6 +75,13 @@
       })
     })
   })
+
+  function syncText(s: SaveSyncStatus): string {
+    if (!s.syncs) return s.note ?? ''
+    if (s.note) return s.note
+    if (s.pending) return 'Saves sync with RomM · newer save on this Deck, uploading soon'
+    return s.synced_at ? `Saves sync with RomM · synced ${ago(Date.parse(s.synced_at) / 1000)}` : 'Saves sync with RomM'
+  }
 
   function sibling(delta: number) {
     const i = siblings.indexOf(id)
@@ -197,7 +206,7 @@
               onclick={primary}>{primaryLabel}</button
             >
             {#if status?.state === 'installed'}
-              <span class="on-device">On this Deck{syncNote ? ` · ${syncNote}` : ''}</span>
+              <span class="on-device">On this Deck</span>
             {/if}
             {#if status?.state === 'unavailable'}<span class="reason">{status.reason}</span>{/if}
           {/if}
@@ -206,6 +215,9 @@
               {#each shots as _, i (i)}<span class:on={i === shot}></span>{/each}
             </div>
           {/if}
+        </div>
+        <div class="sync-line" class:warn={!!sync?.note && sync.syncs}>
+          {#if sync}{syncText(sync)}{/if}
         </div>
       </div>
     </div>
@@ -290,6 +302,14 @@
     background: rgb(255 255 255 / 0.12);
     box-shadow: none;
     color: var(--muted);
+  }
+  .sync-line {
+    min-height: 20px;
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .sync-line.warn {
+    color: var(--danger);
   }
   .on-device,
   .reason {

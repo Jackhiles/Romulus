@@ -30,6 +30,9 @@ pub struct Record {
     pub local_fp: Option<String>,
     pub server_id: Option<i64>,
     pub server_hash: Option<String>,
+    /// When the two were last confirmed in sync (RFC 3339; not used for decisions).
+    #[serde(default)]
+    pub synced_at: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -96,6 +99,7 @@ mod tests {
             local_fp: Some(fp.into()),
             server_id: Some(id),
             server_hash: Some(hash.into()),
+            ..Default::default()
         }
     }
 
@@ -142,6 +146,7 @@ mod tests {
             local_fp: Some("fp".into()),
             server_id: Some(1),
             server_hash: None,
+            ..Default::default()
         };
         let same = Server { id: 1, hash: None };
         let newer = Server { id: 2, hash: None };

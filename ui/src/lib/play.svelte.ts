@@ -1,5 +1,6 @@
 // What is on the device, what is downloading, and what is running. Shared by the lists,
 // the detail page and the "playing" overlay; fed by `download` and `game` events.
+import { listen } from '@tauri-apps/api/event'
 import { games, onDownload, onGame } from './api'
 import { size } from './format'
 import { toast } from './toast.svelte'
@@ -49,6 +50,17 @@ export function initDevice() {
         toast(`Download failed: ${e.message}`, 'error', 7000)
         break
     }
+  }).catch(() => {})
+  listen<{ uploaded: number; conflicts: number }>('save-sync', (e) => {
+    const { uploaded, conflicts } = e.payload
+    if (uploaded) toast(`${uploaded} save${uploaded === 1 ? '' : 's'} uploaded to RomM.`)
+    if (conflicts)
+      toast(
+        `${conflicts} game${conflicts === 1 ? ' has' : 's have'} newer saves on both this Deck and RomM; you'll be asked when you play.`,
+        'error',
+        7000,
+      )
+    device.revision++
   }).catch(() => {})
   onGame((e) => {
     switch (e.stage) {

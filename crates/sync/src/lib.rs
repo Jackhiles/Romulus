@@ -15,7 +15,7 @@ pub mod local;
 pub mod run;
 
 pub use engine::Record;
-pub use run::{Choice, ConflictInfo, Ctx, Outcome, after, before};
+pub use run::{Choice, ConflictInfo, Ctx, Outcome, after, before, changed_locally};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {

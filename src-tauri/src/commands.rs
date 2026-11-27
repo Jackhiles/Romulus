@@ -305,8 +305,9 @@ pub async fn refresh_library(app: AppHandle, state: State<'_, AppState>) -> Res<
         st.refreshing.store(false, Ordering::SeqCst);
         match result {
             Ok(stats) => {
-                // A good moment to send play sessions recorded while offline.
+                // A good moment to send play sessions and saves recorded while offline.
                 crate::games::report_play_sessions(&client, &cache).await;
+                crate::games::sync_changed_saves(&app).await;
                 let _ = app.emit(
                     "refresh",
                     serde_json::json!({"stage": "done", "stats": stats}),

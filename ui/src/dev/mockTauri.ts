@@ -97,7 +97,7 @@ const handlers: Record<string, (a: any) => unknown> = {
     setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000, save: 'uploaded' }), 2500)
     return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null, warning: null }
   },
-  save_sync_status: () => 'Saves sync with RomM (retroarch-swanstation)',
+  save_sync_status: () => ({ syncs: true, emulator: 'retroarch-swanstation', note: null, synced_at: new Date(Date.now() - 300000).toISOString(), pending: false }),
   status: () => ({
     app_name: 'Romulus',
     version: 'dev',

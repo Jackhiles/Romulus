@@ -86,7 +86,20 @@ fn record_of(local: Option<&Local>, server: Option<&ServerSave>) -> Record {
         local_fp: local.map(|l| l.fp.clone()),
         server_id: server.map(|s| s.id),
         server_hash: server.and_then(|s| s.content_hash.clone()),
+        synced_at: OffsetDateTime::now_utc()
+            .format(&time::format_description::well_known::Rfc3339)
+            .ok(),
     }
+}
+
+/// Has the save on the device changed since it was last in sync? (No network.)
+pub fn changed_locally(game: &Located, record: Option<&Record>) -> Result<bool> {
+    let now = local::read(&game.spec)?;
+    Ok(match (now, record.and_then(|r| r.local_fp.as_deref())) {
+        (Some(l), Some(fp)) => l.fp != fp,
+        (Some(_), None) => true,
+        (None, _) => false,
+    })
 }
 
 fn conflict(game: &Located, server: &ServerSave) -> ConflictInfo {

@@ -82,6 +82,7 @@ async fn restores_newer_save_from_romm_with_a_backup() {
         local_fp: Some(content_hash(b"OLD")),
         server_id: Some(1),
         server_hash: Some("h1".into()),
+        ..Default::default()
     };
     let ctx = Ctx {
         client: &c,
@@ -129,6 +130,7 @@ async fn uploads_after_playing_and_reports_conflicts() {
         local_fp: Some(content_hash(b"V1")),
         server_id: Some(1),
         server_hash: Some(content_hash(b"V1")),
+        ..Default::default()
     };
     let ctx = Ctx {
         client: &c,

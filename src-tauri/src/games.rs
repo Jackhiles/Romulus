@@ -507,23 +507,128 @@ pub async fn play_rom(
     })
 }
 
-/// Whether and how this game's save syncs, for the detail page.
+/// How this game's save syncs, for the detail page.
+#[derive(Serialize)]
+pub struct SaveSyncStatus {
+    /// Saves sync for this game.
+    syncs: bool,
+    /// RomM's emulator name, when it syncs.
+    emulator: Option<String>,
+    /// Why it doesn't sync, or something to know (RFC: plain sentence).
+    note: Option<String>,
+    /// Last time it was in sync (RFC 3339).
+    synced_at: Option<String>,
+    /// Changed on the Deck since then; will upload.
+    pending: bool,
+}
+
 #[tauri::command]
-pub async fn save_sync_status(state: State<'_, AppState>, rom_id: i64) -> Res<Option<String>> {
+pub async fn save_sync_status(
+    state: State<'_, AppState>,
+    rom_id: i64,
+) -> Res<Option<SaveSyncStatus>> {
     if !lock(&state.config).save_sync {
-        return Ok(Some("Save sync is off (Settings)".into()));
+        return Ok(Some(SaveSyncStatus {
+            syncs: false,
+            emulator: None,
+            note: Some("Save sync is off (Settings)".into()),
+            synced_at: None,
+            pending: false,
+        }));
     }
     let (_, cache) = session_parts(&state).await?;
     let Some(inst) = record(&cache, rom_id) else {
         return Ok(None);
     };
-    Ok(match save_location(&state, &cache, &inst) {
-        Ok(l) => Some(match l.warning {
-            Some(w) => w,
-            None => format!("Saves sync with RomM ({})", l.emulator),
-        }),
-        Err(why) => Some(format!("Saves don't sync: {why}")),
-    })
+    Ok(Some(match save_location(&state, &cache, &inst) {
+        Ok(l) => {
+            let rec = load_record(&cache, rom_id);
+            let pending = sync::changed_locally(&l, rec.as_ref()).unwrap_or(false);
+            SaveSyncStatus {
+                syncs: true,
+                emulator: Some(l.emulator.clone()),
+                note: l.warning.clone(),
+                synced_at: rec.and_then(|r| r.synced_at),
+                pending,
+            }
+        }
+        Err(why) => SaveSyncStatus {
+            syncs: false,
+            emulator: None,
+            note: Some(why),
+            synced_at: None,
+            pending: false,
+        },
+    }))
+}
+
+/// Upload saves that changed on the Deck since their last sync: ones whose upload
+/// failed (RomM was down) and ones played outside Romulus (e.g. from ES-DE). Only games
+/// whose save actually changed are contacted. Emits `save-sync` {uploaded, conflicts}.
+pub async fn sync_changed_saves(app: &AppHandle) {
+    let state = app.state::<AppState>();
+    if !lock(&state.config).save_sync || state.playing.load(Ordering::SeqCst) {
+        return;
+    }
+    let Ok((client, cache)) = session_parts(&state).await else {
+        return;
+    };
+    let ids = lock(&cache).installed_ids().unwrap_or_default();
+    let device = client
+        .credentials()
+        .await
+        .and_then(|c| c.device_id().map(str::to_string));
+    let backups = state.paths.data_dir.join("backups");
+    let (mut uploaded, mut conflicts) = (0u32, 0u32);
+    for rom_id in ids {
+        let Some(inst) = record(&cache, rom_id) else {
+            continue;
+        };
+        let Ok(game) = save_location(&state, &cache, &inst) else {
+            continue;
+        };
+        let rec = load_record(&cache, rom_id);
+        if !sync::changed_locally(&game, rec.as_ref()).unwrap_or(false) {
+            continue;
+        }
+        let ctx = sync::Ctx {
+            client: &client,
+            device_id: device.as_deref(),
+            backups: &backups,
+        };
+        match sync::after(&ctx, rom_id, &game, rec.as_ref()).await {
+            Ok(sync::Outcome::Synced { record, changed }) => {
+                store_record(&cache, rom_id, &record);
+                if changed == Some("uploaded") {
+                    uploaded += 1;
+                }
+            }
+            Ok(sync::Outcome::Conflict(_)) => conflicts += 1,
+            Err(e) => {
+                tracing::info!("save of rom {rom_id} stays pending: {e}");
+                // RomM is probably unreachable; no point trying the rest now.
+                if matches!(
+                    e,
+                    sync::Error::Api(
+                        romm_api::Error::Network(_)
+                            | romm_api::Error::Http {
+                                status: 500..=599,
+                                ..
+                            }
+                    )
+                ) {
+                    break;
+                }
+            }
+        }
+    }
+    if uploaded > 0 || conflicts > 0 {
+        tracing::info!("background save sync: {uploaded} uploaded, {conflicts} conflicts");
+        let _ = app.emit(
+            "save-sync",
+            serde_json::json!({ "uploaded": uploaded, "conflicts": conflicts }),
+        );
+    }
 }
 
 fn fmt(t: time::OffsetDateTime) -> String {

@@ -194,6 +194,14 @@ export type GameEvent =
 
 export type SaveChoice = 'keep_local' | 'use_server'
 
+export interface SaveSyncStatus {
+  syncs: boolean
+  emulator: string | null
+  note: string | null
+  synced_at: string | null
+  pending: boolean
+}
+
 export interface SaveConflict {
   local_modified: string | null
   server_updated: string
@@ -209,7 +217,7 @@ export const games = {
   cancel: (romId: number) => invoke<void>('cancel_download', { romId }),
   remove: (romId: number) => invoke<void>('remove_rom', { romId }),
   play: (romId: number, choice?: SaveChoice) => invoke<PlayStart>('play_rom', { romId, choice: choice ?? null }),
-  saveSyncStatus: (romId: number) => invoke<string | null>('save_sync_status', { romId }),
+  saveSyncStatus: (romId: number) => invoke<SaveSyncStatus | null>('save_sync_status', { romId }),
 }
 
 export function onDownload(f: (e: DownloadEvent) => void): Promise<UnlistenFn> {
