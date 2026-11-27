@@ -2475,7 +2475,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fs4",
  "futures-util",
@@ -2550,7 +2550,7 @@ dependencies = [
 
 [[package]]
 name = "library-cache"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "hex",
  "romm-api",
@@ -3940,7 +3940,7 @@ dependencies = [
 
 [[package]]
 name = "romm-api"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -3955,7 +3955,7 @@ dependencies = [
 
 [[package]]
 name = "romulus"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "crc32fast",
  "dirs 6.0.0",
@@ -5503,7 +5503,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "futures-util",
  "hex",
