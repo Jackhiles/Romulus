@@ -210,6 +210,22 @@ export interface SaveConflict {
 
 export type PlayStart = { state: 'started'; save: string | null; warning: string | null } | { state: 'conflict'; info: SaveConflict }
 
+export type BiosState = 'present' | 'missing' | 'different' | 'unsupported'
+
+export interface BiosSystem {
+  platform_id: number
+  name: string
+  slug: string
+  supported: boolean
+  files: { id: number; name: string; size_bytes: number; verified: boolean; state: BiosState }[]
+}
+
+export const bios = {
+  status: () => invoke<BiosSystem[]>('bios_status'),
+  download: (platformId: number) =>
+    invoke<{ installed: number; failed: string[] }>('download_bios', { platformId }),
+}
+
 export const games = {
   status: (romId: number) => invoke<InstallStatus>('install_status', { romId }),
   installedIds: () => invoke<number[]>('installed_ids'),

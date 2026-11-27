@@ -371,6 +371,27 @@ impl Cache {
         Ok(rows)
     }
 
+    /// Every cached platform, including ones without cached ROMs.
+    pub fn platforms_all(&self) -> Result<Vec<PlatformRow>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT p.id, p.slug, p.fs_slug, p.name, (SELECT COUNT(*) FROM roms r WHERE r.platform_id = p.id), p.logo
+             FROM platforms p ORDER BY p.name COLLATE NOCASE",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(PlatformRow {
+                    id: r.get(0)?,
+                    slug: r.get(1)?,
+                    fs_slug: r.get(2)?,
+                    name: r.get(3)?,
+                    rom_count: r.get(4)?,
+                    logo: r.get(5)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     pub fn roms(&self, platform_id: i64, order: SortOrder) -> Result<Vec<RomRow>> {
         let sql = match order {
             SortOrder::Title => {

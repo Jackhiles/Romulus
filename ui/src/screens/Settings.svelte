@@ -6,6 +6,7 @@
   import { ago, size } from '../lib/format'
   import { onAction, setWebGamepad, type Action } from '../lib/input'
   import { library, refresh } from '../lib/library.svelte'
+  import { push } from '../lib/nav.svelte'
   import { toast } from '../lib/toast.svelte'
 
   let { onsignout }: { onsignout: () => void } = $props()
@@ -129,6 +130,7 @@
           patch({ systems_view: SYSTEMS_VIEWS[(i + d + SYSTEMS_VIEWS.length) % SYSTEMS_VIEWS.length] })
         },
       },
+      { label: 'BIOS', value: 'Get BIOS files from RomM', run: () => push({ name: 'bios' }) },
       {
         label: 'Save sync',
         value: s.save_sync ? 'On · before and after playing' : 'Off',

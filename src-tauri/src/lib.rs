@@ -1,4 +1,5 @@
 pub mod app;
+mod bios;
 mod commands;
 pub mod config;
 mod games;
@@ -98,6 +99,8 @@ pub fn run() {
             commands::open_keyboard,
             commands::add_to_steam,
             commands::log_ui,
+            bios::bios_status,
+            bios::download_bios,
             games::retrodeck_status,
             games::install_status,
             games::installed_ids,

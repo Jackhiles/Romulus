@@ -10,12 +10,14 @@
 mod auth;
 mod error;
 mod files;
+mod firmware;
 mod saves;
 mod types;
 
 pub use auth::{Credentials, DEFAULT_SCOPES, DeviceAuthInit, DeviceInfo, DevicePoll};
 pub use error::{Error, Result};
 pub use files::{Download, PlaySession, RomFile, RomFiles};
+pub use firmware::Firmware;
 pub use saves::{SaveUpload, ServerSave};
 pub use types::*;
 
@@ -40,6 +42,8 @@ pub const USED_PATHS: &[&str] = &[
     "/api/roms/{id}/props",
     "/api/play-sessions",
     "/api/saves",
+    "/api/firmware",
+    "/api/firmware/{id}/content/{file_name}",
     "/api/saves/{id}/content",
     "/api/saves/{id}/downloaded",
 ];

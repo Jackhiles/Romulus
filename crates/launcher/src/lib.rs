@@ -9,6 +9,7 @@
 //! Nothing here touches save data: installs only ever create and remove the ROM files
 //! they downloaded, inside the ROM folder.
 
+pub mod bios;
 pub mod env;
 pub mod install;
 pub mod plan;

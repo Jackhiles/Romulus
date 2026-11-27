@@ -97,6 +97,17 @@ const handlers: Record<string, (a: any) => unknown> = {
     setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000, save: 'uploaded' }), 2500)
     return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null, warning: null }
   },
+  bios_status: () => [
+    { platform_id: 1, name: 'PlayStation', slug: 'psx', supported: true, files: [
+      { id: 1, name: 'scph1001.bin', size_bytes: 524288, verified: true, state: 'present' },
+      { id: 2, name: 'scph5501.bin', size_bytes: 524288, verified: true, state: 'missing' },
+      { id: 3, name: 'scph7001.bin', size_bytes: 524288, verified: true, state: 'different' },
+    ] },
+    { platform_id: 2, name: 'Nintendo Switch', slug: 'switch', supported: false, files: [
+      { id: 4, name: 'prod.keys', size_bytes: 9000, verified: false, state: 'unsupported' },
+    ] },
+  ],
+  download_bios: () => ({ installed: 1, failed: [] }),
   save_sync_status: () => ({ syncs: true, emulator: 'retroarch-swanstation', note: null, synced_at: new Date(Date.now() - 300000).toISOString(), pending: false }),
   status: () => ({
     app_name: 'Romulus',

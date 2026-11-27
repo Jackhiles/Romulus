@@ -440,3 +440,25 @@ async fn saves_list_download_upload_and_conflict() {
     assert_eq!(c.upload_save(&up).await.unwrap().id, 2);
     assert!(c.upload_save(&up).await.unwrap_err().is_conflict());
 }
+
+#[tokio::test]
+async fn lists_and_downloads_firmware() {
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/firmware"))
+        .and(query_param("platform_id", "4"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([{
+            "id": 9, "platform_id": 4, "file_name": "SCPH-1001 (US).bin", "file_size_bytes": 4,
+            "is_verified": true, "md5_hash": "abc", "sha1_hash": null, "crc_hash": "x", "file_path": "bios/psx"
+        }])))
+        .mount(&s)
+        .await;
+    Mock::given(path("/api/firmware/9/content/SCPH-1001%20(US).bin"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"BIOS".to_vec()))
+        .mount(&s)
+        .await;
+    let c = client(&s).await;
+    let fw = c.firmware(Some(4)).await.unwrap();
+    assert!(fw[0].is_verified);
+    assert_eq!(c.download_firmware(&fw[0]).await.unwrap(), b"BIOS");
+}

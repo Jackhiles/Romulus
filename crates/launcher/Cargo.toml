@@ -15,6 +15,7 @@ tokio.workspace = true
 time.workspace = true
 hex.workspace = true
 sha1 = "0.10"
+md-5 = "0.10"
 fs4 = "1"
 futures-util = "0.3"
 
