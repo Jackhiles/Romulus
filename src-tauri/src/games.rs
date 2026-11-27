@@ -406,6 +406,7 @@ pub async fn play_rom(
         note = save_note(&outcome);
     }
 
+    let warning = located.as_ref().and_then(|l| l.warning.clone());
     state.input_paused.store(true, Ordering::Relaxed);
     let _ = app.emit("game", GameEvent::Started { rom_id });
 
@@ -500,7 +501,6 @@ pub async fn play_rom(
             }
         }
     });
-    let warning = located.as_ref().and_then(|l| l.warning.clone());
     Ok(PlayStart::Started {
         save: note,
         warning,
