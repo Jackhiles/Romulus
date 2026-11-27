@@ -34,7 +34,12 @@ pub fn run() {
         "renderer: {}",
         if fast { "fast (DMA-BUF)" } else { "compatible" }
     );
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && !fast {
+    // Set or clear explicitly: a copy started by the self-updater may have inherited the
+    // previous copy's value.
+    if fast {
+        // SAFETY: called before any other thread is started.
+        unsafe { std::env::remove_var("WEBKIT_DISABLE_DMABUF_RENDERER") };
+    } else {
         // SAFETY: called before any other thread is started.
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }

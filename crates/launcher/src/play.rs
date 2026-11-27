@@ -21,6 +21,15 @@ pub struct Session {
     pub duration_ms: u64,
     /// The emulator's exit code (None if it was killed by a signal).
     pub exit_code: Option<i32>,
+    /// The last lines it wrote to stderr.
+    pub stderr_tail: String,
+}
+
+impl Session {
+    /// Exited with an error almost at once: the game never really started.
+    pub fn failed_to_start(&self) -> bool {
+        self.duration_ms < 10_000 && self.exit_code.is_some_and(|c| c != 0)
+    }
 }
 
 /// Play `game` with RetroDECK and wait until it exits.
@@ -34,13 +43,44 @@ pub async fn run(program: &str, args: &[&str]) -> Result<Session> {
     let start = OffsetDateTime::now_utc();
     let clock = Instant::now();
     tracing::info!("starting {program} {args:?}");
-    let status = tokio::process::Command::new(program)
-        .args(args)
+    let mut cmd = crate::env::host_command(program);
+    cmd.args(args);
+    let mut child = tokio::process::Command::from(cmd)
         .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .kill_on_drop(false)
-        .status()
+        .spawn()
+        .map_err(|e| Error::Launch(e.to_string()))?;
+    // Keep the last lines of error output (read continuously, so the pipe never fills).
+    let tail = tokio::spawn({
+        let stderr = child.stderr.take();
+        async move {
+            use tokio::io::AsyncBufReadExt;
+            let mut last: std::collections::VecDeque<String> = Default::default();
+            if let Some(s) = stderr {
+                let mut lines = tokio::io::BufReader::new(s).lines();
+                while let Ok(Some(l)) = lines.next_line().await {
+                    // Steam's 32-bit overlay can't load into 64-bit programs; harmless noise.
+                    if l.contains("gameoverlayrenderer.so") {
+                        continue;
+                    }
+                    if last.len() == 12 {
+                        last.pop_front();
+                    }
+                    last.push_back(l);
+                }
+            }
+            last.into_iter().collect::<Vec<_>>().join(
+                "
+",
+            )
+        }
+    });
+    let status = child
+        .wait()
         .await
         .map_err(|e| Error::Launch(e.to_string()))?;
+    let stderr_tail = tail.await.unwrap_or_default();
     let duration_ms = clock.elapsed().as_millis() as u64;
     tracing::info!(
         "{program} exited with {status} after {} s",
@@ -51,6 +91,7 @@ pub async fn run(program: &str, args: &[&str]) -> Result<Session> {
         end: start + time::Duration::milliseconds(duration_ms as i64),
         duration_ms,
         exit_code: status.code(),
+        stderr_tail,
     })
 }
 
@@ -61,10 +102,21 @@ mod tests {
     #[cfg(unix)]
     #[tokio::test]
     async fn times_the_process() {
-        let s = run("sh", &["-c", "sleep 0.2; exit 3"]).await.unwrap();
+        let s = run(
+            "sh",
+            &["-c", "echo noise >&2; echo boom >&2; sleep 0.2; exit 3"],
+        )
+        .await
+        .unwrap();
         assert!(s.duration_ms >= 200, "{}", s.duration_ms);
         assert_eq!(s.exit_code, Some(3));
         assert!(s.end > s.start);
+        assert_eq!(
+            s.stderr_tail,
+            "noise
+boom"
+        );
+        assert!(s.failed_to_start());
     }
 
     #[tokio::test]

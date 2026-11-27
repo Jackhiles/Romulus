@@ -364,11 +364,9 @@ pub async fn install_update(app: AppHandle, state: State<'_, AppState>) -> Res<(
 #[tauri::command]
 pub fn restart_app(app: AppHandle) -> Res<()> {
     let exe = updater::program_path().map_err(err)?;
-    let mut cmd = std::process::Command::new(&exe);
-    // The AppImage runtime sets these for the running copy; the new one sets its own.
-    for v in ["APPIMAGE", "APPDIR", "OWD", "ARGV0"] {
-        cmd.env_remove(v);
-    }
+    // Without this copy's AppImage paths (they piled up with every restart, and carried
+    // settings like the renderer over); the new AppImage sets its own.
+    let mut cmd = launcher::host_command(&exe.to_string_lossy());
     // Don't hand our open files to the new copy. The AppImage runtime passes its FUSE
     // connection down without close-on-exec; if the new copy inherits it, the old
     // AppImage's mount (and runtime process) stays alive until Steam closes everything.
@@ -516,7 +514,7 @@ pub fn open_keyboard() {
     if std::env::var_os("SteamDeck").is_none() && std::env::var_os("SteamGamepadUI").is_none() {
         return;
     }
-    if let Err(e) = std::process::Command::new("xdg-open")
+    if let Err(e) = launcher::host_command("xdg-open")
         .arg("steam://open/keyboard")
         .spawn()
     {

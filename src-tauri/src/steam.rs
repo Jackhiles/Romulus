@@ -279,7 +279,7 @@ pub fn in_gaming_mode() -> bool {
 
 /// Ask Steam to close and wait (up to ~40 s) until it has.
 fn shutdown_steam() -> bool {
-    let _ = std::process::Command::new("steam").arg("-shutdown").spawn();
+    let _ = launcher::host_command("steam").arg("-shutdown").spawn();
     for _ in 0..80 {
         std::thread::sleep(std::time::Duration::from_millis(500));
         if !steam_running() {
@@ -292,7 +292,7 @@ fn shutdown_steam() -> bool {
 }
 
 fn start_steam() {
-    let _ = std::process::Command::new("steam")
+    let _ = launcher::host_command("steam")
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())

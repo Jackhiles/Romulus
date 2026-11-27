@@ -9,12 +9,14 @@
 //! Nothing here touches save data: installs only ever create and remove the ROM files
 //! they downloaded, inside the ROM folder.
 
+pub mod env;
 pub mod install;
 pub mod plan;
 pub mod play;
 pub mod retrodeck;
 pub mod systems;
 
+pub use env::host_command;
 pub use install::{Installed, install, remove};
 pub use plan::{Plan, PlannedFile, plan};
 pub use play::{Session, play};

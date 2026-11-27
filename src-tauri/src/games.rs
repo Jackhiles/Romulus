@@ -258,6 +258,26 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
             let _ = w.set_focus();
         }
         match result {
+            Ok(s) if s.failed_to_start() => {
+                tracing::warn!(
+                    "rom {rom_id} exited at once with {:?}: {}",
+                    s.exit_code,
+                    s.stderr_tail
+                );
+                let last = s
+                    .stderr_tail
+                    .lines()
+                    .last()
+                    .unwrap_or("no details")
+                    .to_string();
+                let _ = app.emit(
+                    "game",
+                    GameEvent::Failed {
+                        rom_id,
+                        message: format!("RetroDECK exited at once ({last})"),
+                    },
+                );
+            }
             Ok(s) => {
                 // Very short runs are failed starts, not play.
                 if s.duration_ms >= 30_000 {
