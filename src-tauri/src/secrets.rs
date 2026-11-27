@@ -1,9 +1,10 @@
-//! RomM credentials: the system keyring (Secret Service) when it works, otherwise a file
-//! readable only by this user.
+//! RomM credentials, in `credentials.json` in the config folder, readable only by this
+//! user (mode 0600), like SSH keys.
 //!
-//! In Gaming Mode on SteamOS the Secret Service (KWallet) may be missing or locked, so the
-//! keyring is tried first and the `0600` file is the fallback. Settings shows which one
-//! is in use.
+//! The system keyring is not used: on SteamOS the Secret Service (KWallet) only runs in
+//! Desktop Mode, so credentials stored there could not be read in Gaming Mode and the Deck
+//! looked signed out. Credentials an earlier version put in the keyring are moved to the
+//! file the first time they are read.
 
 use crate::app::APP_ID;
 use romm_api::Credentials;
@@ -13,7 +14,6 @@ use std::path::{Path, PathBuf};
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
 pub enum Store {
-    Keyring,
     File,
 }
 
@@ -32,32 +32,29 @@ impl Secrets {
         }
     }
 
-    /// Save credentials for `server`. Returns where they went.
+    /// Save credentials for `server`.
     pub fn save(&self, server: &str, creds: &Credentials) -> std::io::Result<Store> {
         let json = serde_json::to_string(creds).map_err(std::io::Error::other)?;
-        match entry(server).and_then(|e| e.set_password(&json)) {
-            Ok(()) => {
-                // Don't leave an older copy in the file.
-                let _ = std::fs::remove_file(&self.file);
-                Ok(Store::Keyring)
-            }
-            Err(e) => {
-                tracing::warn!("keyring unavailable ({e}); storing credentials in a private file");
-                self.write_file(server, &json)?;
-                Ok(Store::File)
-            }
-        }
+        self.write_file(server, &json)?;
+        Ok(Store::File)
     }
 
     pub fn load(&self, server: &str) -> Option<(Credentials, Store)> {
-        if let Ok(json) = entry(server).and_then(|e| e.get_password())
-            && let Ok(c) = serde_json::from_str(&json)
-        {
-            return Some((c, Store::Keyring));
+        if let Some(c) = self.read_file(server) {
+            return Some((c, Store::File));
         }
-        let text = std::fs::read_to_string(&self.file).ok()?;
-        let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&text).ok()?;
-        let c = serde_json::from_value(map.get(server)?.clone()).ok()?;
+        // Stored in the keyring by version 0.1.0 (only reachable in Desktop Mode).
+        let json = entry(server).and_then(|e| e.get_password()).ok()?;
+        let c: Credentials = serde_json::from_str(&json).ok()?;
+        match self.write_file(server, &json) {
+            Ok(()) => {
+                if let Ok(e) = entry(server) {
+                    let _ = e.delete_credential();
+                }
+                tracing::info!("moved RomM credentials from the keyring to the credentials file");
+            }
+            Err(e) => tracing::warn!("could not move credentials out of the keyring: {e}"),
+        }
         Some((c, Store::File))
     }
 
@@ -66,6 +63,12 @@ impl Secrets {
             let _ = e.delete_credential();
         }
         let _ = std::fs::remove_file(&self.file);
+    }
+
+    fn read_file(&self, server: &str) -> Option<Credentials> {
+        let text = std::fs::read_to_string(&self.file).ok()?;
+        let map: serde_json::Map<String, serde_json::Value> = serde_json::from_str(&text).ok()?;
+        serde_json::from_value(map.get(server)?.clone()).ok()
     }
 
     fn write_file(&self, server: &str, json: &str) -> std::io::Result<()> {
@@ -119,5 +122,7 @@ mod tests {
         }
         let text = std::fs::read_to_string(dir.path().join("credentials.json")).unwrap();
         assert!(text.contains("rmm_x"));
+        assert_eq!(s.read_file("https://a/"), Some(c));
+        assert_eq!(s.read_file("https://b/"), None);
     }
 }

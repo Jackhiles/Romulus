@@ -7,7 +7,7 @@ export interface Status {
   version: string
   server_url: string | null
   signed_in: boolean
-  credential_store: 'keyring' | 'file' | null
+  credential_store: 'file' | null
   rom_count: number
   last_sync_at: number | null
   refreshing: boolean

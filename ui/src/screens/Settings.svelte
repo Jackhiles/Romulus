@@ -108,7 +108,7 @@
       {
         label: 'Account',
         value: status.signed_in
-          ? `Signed in${s.username ? ` as ${s.username}` : ' (paired device)'} · credentials in ${status.credential_store === 'file' ? 'a private file (keyring unavailable)' : 'the system keyring'}`
+          ? `Signed in${s.username ? ` as ${s.username}` : ' (paired device)'}`
           : 'Not signed in',
       },
       {
