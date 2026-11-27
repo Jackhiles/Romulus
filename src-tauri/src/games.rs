@@ -327,9 +327,7 @@ fn save_note(outcome: &sync::Result<sync::Outcome>) -> Option<String> {
         }) => Some("uploaded".into()),
         Ok(sync::Outcome::Synced { .. }) => None,
         Ok(sync::Outcome::Conflict(_)) => Some("conflict".into()),
-        Err(sync::Error::Api(e)) if matches!(e, romm_api::Error::Network(_)) => {
-            Some("offline".into())
-        }
+        Err(sync::Error::Api(romm_api::Error::Network(_))) => Some("offline".into()),
         Err(e) => Some(format!("failed: {e}")),
     }
 }
