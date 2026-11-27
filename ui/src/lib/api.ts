@@ -68,6 +68,7 @@ export interface Settings {
   web_gamepad: boolean
   fast_renderer: boolean
   save_sync: boolean
+  state_sync: boolean
   music: boolean
   music_volume: number
   systems_view: SystemsView
@@ -197,7 +198,7 @@ export type DownloadEvent =
 
 export type GameEvent =
   | { stage: 'started'; rom_id: number }
-  | { stage: 'ended'; rom_id: number; duration_ms: number; save: string | null }
+  | { stage: 'ended'; rom_id: number; duration_ms: number; save: string | null; states?: number }
   | { stage: 'failed'; rom_id: number; message: string }
 
 export interface DownloadItem {
@@ -217,6 +218,8 @@ export interface SaveSyncStatus {
   note: string | null
   synced_at: string | null
   pending: boolean
+  /** How save states sync (a sentence); null when state sync is off. */
+  states?: string | null
 }
 
 export interface SaveConflict {
@@ -225,7 +228,25 @@ export interface SaveConflict {
   server_device: string | null
 }
 
-export type PlayStart = { state: 'started'; save: string | null; warning: string | null } | { state: 'conflict'; info: SaveConflict }
+export type PlayStart =
+  | { state: 'started'; save: string | null; warning: string | null; states?: number }
+  | { state: 'conflict'; info: SaveConflict }
+
+/** A RomM collection (`smart`: rule-based). Favourites is the one with `is_favorite`. */
+export interface RommCollection {
+  id: number
+  smart: boolean
+  name: string
+  is_favorite: boolean
+  rom_ids: number[]
+}
+
+export const collections = {
+  list: () => invoke<RommCollection[]>('romm_collections'),
+  games: (smart: boolean, id: number) => invoke<Rom[]>('collection_games', { smart, id }),
+  isFavourite: (romId: number) => invoke<boolean>('is_favourite', { romId }),
+  setFavourite: (romId: number, on: boolean) => invoke<boolean>('set_favourite', { romId, on }),
+}
 
 export interface Achievement {
   title: string

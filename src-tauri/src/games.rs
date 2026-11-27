@@ -388,11 +388,13 @@ enum GameEvent {
     Started {
         rom_id: i64,
     },
-    /// `save` says what happened to the save afterwards (see [`save_note`]).
+    /// `save` says what happened to the save afterwards (see [`save_note`]), `states`
+    /// how many save states were uploaded.
     Ended {
         rom_id: i64,
         duration_ms: u64,
         save: Option<String>,
+        states: usize,
     },
     Failed {
         rom_id: i64,
@@ -409,17 +411,21 @@ pub enum PlayStart {
         save: Option<String>,
         /// Something to tell the player before the game appears.
         warning: Option<String>,
+        /// Save states restored from RomM.
+        states: usize,
     },
     /// The Deck and RomM both have newer saves: ask, then call `play_rom` with a choice.
     Conflict { info: sync::ConflictInfo },
 }
 
-/// Where this game's save lives, or why it can't be synced.
-fn save_location(
-    state: &AppState,
-    cache: &Mutex<Cache>,
-    inst: &Installed,
-) -> Result<sync::layout::Located, String> {
+/// The emulator RetroDECK uses for a game, its folders, and RomM's data for the game.
+type GameEnv = (
+    sync::emulator::Emulator,
+    sync::layout::Dirs,
+    serde_json::Value,
+);
+
+fn game_env(state: &AppState, cache: &Mutex<Cache>, inst: &Installed) -> Result<GameEnv, String> {
     let rd = retrodeck(state).ok_or("RetroDECK was not found")?;
     let rd_home = rd
         .roms
@@ -451,6 +457,16 @@ fn save_location(
         .flatten()
         .map(|(_, j)| j)
         .unwrap_or_default();
+    Ok((emu, dirs, json))
+}
+
+/// Where this game's save lives, or why it can't be synced.
+fn save_location(
+    state: &AppState,
+    cache: &Mutex<Cache>,
+    inst: &Installed,
+) -> Result<sync::layout::Located, String> {
+    let (emu, dirs, json) = game_env(state, cache, inst)?;
     sync::layout::locate(
         &emu,
         &inst.launch,
@@ -458,6 +474,76 @@ fn save_location(
         json["save_target"].as_str(),
         json["save_target_layout"].as_str(),
     )
+}
+
+/// Where this game's save states live, or why they can't be synced.
+fn state_location(
+    state: &AppState,
+    cache: &Mutex<Cache>,
+    inst: &Installed,
+) -> Result<sync::states::StateSet, String> {
+    let (emu, dirs, json) = game_env(state, cache, inst)?;
+    sync::states::locate(&emu, &inst.launch, &dirs, json["save_target"].as_str())
+}
+
+fn load_state_records(
+    cache: &Mutex<Cache>,
+    rom_id: i64,
+) -> std::collections::HashMap<String, sync::states::StateRecord> {
+    lock(cache)
+        .state_records(rom_id)
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|(n, j)| Some((n, serde_json::from_str(&j).ok()?)))
+        .collect()
+}
+
+fn store_state_records(cache: &Mutex<Cache>, rom_id: i64, sum: &sync::states::Summary) {
+    for (name, r) in &sum.records {
+        let stored = serde_json::to_string(r)
+            .map_err(|e| e.to_string())
+            .and_then(|j| {
+                lock(cache)
+                    .set_state_record(rom_id, name, &j)
+                    .map_err(|e| e.to_string())
+            });
+        if let Err(e) = stored {
+            tracing::warn!("could not store state sync record: {e}");
+        }
+    }
+}
+
+/// Sync a game's save states; failures are logged, never in the way of playing.
+async fn sync_states(
+    ctx: &sync::Ctx<'_>,
+    cache: &Mutex<Cache>,
+    rom_id: i64,
+    set: &sync::states::StateSet,
+    before: bool,
+) -> sync::Result<sync::states::Summary> {
+    let recs = load_state_records(cache, rom_id);
+    let sum = match tokio::time::timeout(
+        Duration::from_secs(120),
+        sync::states::sync(ctx, rom_id, set, &recs, before),
+    )
+    .await
+    {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(sync::Error::Api(romm_api::Error::Decode(
+                "timed out".into(),
+            )));
+        }
+    };
+    store_state_records(cache, rom_id, &sum);
+    if sum.uploaded + sum.downloaded > 0 {
+        tracing::info!(
+            "states of rom {rom_id}: {} uploaded, {} downloaded",
+            sum.uploaded,
+            sum.downloaded
+        );
+    }
+    Ok(sum)
 }
 
 fn load_record(cache: &Mutex<Cache>, rom_id: i64) -> Option<sync::Record> {
@@ -563,6 +649,30 @@ pub async fn play_rom(
         note = save_note(&outcome);
     }
 
+    let states = if lock(&state.config).state_sync {
+        match state_location(&state, &cache, &inst) {
+            Ok(s) => Some(s),
+            Err(why) => {
+                tracing::info!("no state sync for rom {rom_id}: {why}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut states_restored = 0;
+    if let Some(set) = &states {
+        let ctx = sync::Ctx {
+            client: &client,
+            device_id: device.as_deref(),
+            backups: &backups,
+        };
+        match sync_states(&ctx, &cache, rom_id, set, true).await {
+            Ok(sum) => states_restored = sum.downloaded,
+            Err(e) => tracing::warn!("state sync before rom {rom_id} failed: {e}"),
+        }
+    }
+
     let warning = located.as_ref().and_then(|l| l.warning.clone());
     crate::music::stop(&state);
     if let Err(e) = lock(&cache).mark_played_now(rom_id) {
@@ -623,6 +733,18 @@ pub async fn play_rom(
                     }
                     save = save_note(&outcome);
                 }
+                let mut states_uploaded = 0;
+                if let Some(set) = &states {
+                    let ctx = sync::Ctx {
+                        client: &client,
+                        device_id: device.as_deref(),
+                        backups: &backups,
+                    };
+                    match sync_states(&ctx, &cache, rom_id, set, false).await {
+                        Ok(sum) => states_uploaded = sum.uploaded,
+                        Err(e) => tracing::warn!("state sync after rom {rom_id} failed: {e}"),
+                    }
+                }
                 st.playing.store(false, Ordering::SeqCst);
                 // Very short runs are failed starts, not play.
                 if s.duration_ms >= 30_000 {
@@ -646,6 +768,7 @@ pub async fn play_rom(
                         rom_id,
                         duration_ms: s.duration_ms,
                         save,
+                        states: states_uploaded,
                     },
                 );
             }
@@ -665,6 +788,7 @@ pub async fn play_rom(
     Ok(PlayStart::Started {
         save: note,
         warning,
+        states: states_restored,
     })
 }
 
@@ -681,6 +805,29 @@ pub struct SaveSyncStatus {
     synced_at: Option<String>,
     /// Changed on the Deck since then; will upload.
     pending: bool,
+    /// How save states sync (a sentence), or None when state sync is off.
+    states: Option<String>,
+}
+
+/// A sentence about this game's save states for the detail page.
+fn states_line(state: &AppState, cache: &Mutex<Cache>, inst: &Installed) -> Option<String> {
+    if !lock(&state.config).state_sync {
+        return None;
+    }
+    Some(match state_location(state, cache, inst) {
+        Ok(set) => {
+            let recs = load_state_records(cache, inst.rom_id);
+            let pending = sync::states::changed_locally(&set, &recs)
+                .map(|v| v.len())
+                .unwrap_or(0);
+            match pending {
+                0 => "Save states sync too".into(),
+                1 => "Save states sync too · 1 waiting to upload".into(),
+                n => format!("Save states sync too · {n} waiting to upload"),
+            }
+        }
+        Err(why) => format!("Save states don't sync: {why}"),
+    })
 }
 
 #[tauri::command]
@@ -695,12 +842,14 @@ pub async fn save_sync_status(
             note: Some("Save sync is off (Settings)".into()),
             synced_at: None,
             pending: false,
+            states: None,
         }));
     }
     let (_, cache) = session_parts(&state).await?;
     let Some(inst) = record(&cache, rom_id) else {
         return Ok(None);
     };
+    let states = states_line(&state, &cache, &inst);
     Ok(Some(match save_location(&state, &cache, &inst) {
         Ok(l) => {
             let rec = load_record(&cache, rom_id);
@@ -711,6 +860,7 @@ pub async fn save_sync_status(
                 note: l.warning.clone(),
                 synced_at: rec.and_then(|r| r.synced_at),
                 pending,
+                states,
             }
         }
         Err(why) => SaveSyncStatus {
@@ -719,6 +869,7 @@ pub async fn save_sync_status(
             note: Some(why),
             synced_at: None,
             pending: false,
+            states,
         },
     }))
 }
@@ -741,7 +892,8 @@ pub async fn sync_changed_saves(app: &AppHandle) {
         .and_then(|c| c.device_id().map(str::to_string));
     let backups = state.paths.data_dir.join("backups");
     let (mut uploaded, mut conflicts) = (0u32, 0u32);
-    for rom_id in ids {
+    let mut offline = false;
+    for rom_id in ids.iter().copied() {
         let Some(inst) = record(&cache, rom_id) else {
             continue;
         };
@@ -778,10 +930,42 @@ pub async fn sync_changed_saves(app: &AppHandle) {
                             }
                     )
                 ) {
+                    offline = true;
                     break;
                 }
             }
         }
+    }
+    // Save states made outside Romulus (or whose upload failed) go up too.
+    let mut states = 0usize;
+    if lock(&state.config).state_sync && !offline {
+        for rom_id in ids {
+            let Some(inst) = record(&cache, rom_id) else {
+                continue;
+            };
+            let Ok(set) = state_location(&state, &cache, &inst) else {
+                continue;
+            };
+            let recs = load_state_records(&cache, rom_id);
+            if !matches!(sync::states::changed_locally(&set, &recs), Ok(v) if !v.is_empty()) {
+                continue;
+            }
+            let ctx = sync::Ctx {
+                client: &client,
+                device_id: device.as_deref(),
+                backups: &backups,
+            };
+            match sync_states(&ctx, &cache, rom_id, &set, false).await {
+                Ok(sum) => states += sum.uploaded,
+                Err(e) => {
+                    tracing::info!("states of rom {rom_id} stay pending: {e}");
+                    break;
+                }
+            }
+        }
+    }
+    if states > 0 {
+        tracing::info!("background state sync: {states} uploaded");
     }
     if uploaded > 0 || conflicts > 0 {
         tracing::info!("background save sync: {uploaded} uploaded, {conflicts} conflicts");

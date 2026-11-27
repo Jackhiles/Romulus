@@ -4,7 +4,7 @@
 use crate::app::{self, APP_NAME, RELEASE_REPO, VERSION};
 use crate::secrets::Store;
 use crate::state::{AppState, lock};
-use library_cache::{PlatformRow, RefreshProgress, RomRow, SortOrder};
+use library_cache::{CollectionRow, PlatformRow, RefreshProgress, RomRow, SortOrder};
 use romm_api::{DeviceInfo, DevicePoll};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -268,6 +268,61 @@ pub async fn random_rom(state: State<'_, AppState>) -> Res<Option<RomRow>> {
     with_cache(&state, |c| c.random_rom()).await
 }
 
+/// RomM collections, favourites first.
+#[tauri::command]
+pub async fn romm_collections(state: State<'_, AppState>) -> Res<Vec<CollectionRow>> {
+    with_cache(&state, |c| c.collections()).await
+}
+
+/// Games of a RomM collection (`smart`: a rule-based one) that are in the library.
+#[tauri::command]
+pub async fn collection_games(
+    state: State<'_, AppState>,
+    smart: bool,
+    id: i64,
+) -> Res<Vec<RomRow>> {
+    with_cache(&state, move |c| c.collection_roms(smart, id)).await
+}
+
+#[tauri::command]
+pub async fn is_favourite(state: State<'_, AppState>, rom_id: i64) -> Res<bool> {
+    with_cache(&state, move |c| {
+        Ok(c.favourites()?.is_some_and(|f| f.rom_ids.contains(&rom_id)))
+    })
+    .await
+}
+
+fn collection_err(e: romm_api::Error) -> String {
+    match e {
+        romm_api::Error::Forbidden(_) => "RomM didn't allow changing favourites: sign out in Settings and pair again to give Romulus that permission".into(),
+        e => e.to_string(),
+    }
+}
+
+/// Add a game to Favourites on RomM, or take it out, creating the collection the first
+/// time. Returns whether it is a favourite now.
+#[tauri::command]
+pub async fn set_favourite(state: State<'_, AppState>, rom_id: i64, on: bool) -> Res<bool> {
+    let (client, cache) = {
+        let session = state.session.read().await;
+        let s = session.as_ref().ok_or("no server set")?;
+        (s.client.clone(), s.cache.clone())
+    };
+    let fav = lock(&cache).favourites().map_err(err)?;
+    let id = match fav {
+        Some(f) => f.id,
+        None if on => client.create_favourites().await.map_err(collection_err)?.id,
+        None => return Ok(false),
+    };
+    let mut updated = client
+        .collection_roms(id, &[rom_id], on)
+        .await
+        .map_err(collection_err)?;
+    updated.is_favorite = true;
+    lock(&cache).upsert_collection(&updated).map_err(err)?;
+    Ok(updated.rom_ids.contains(&rom_id))
+}
+
 /// Automatic collections: "recent" (continue playing) or "installed" (on this Deck).
 #[tauri::command]
 pub async fn collection(state: State<'_, AppState>, kind: String) -> Res<Vec<RomRow>> {
@@ -447,6 +502,7 @@ pub struct SettingsPatch {
     systems_view: Option<String>,
     fast_renderer: Option<bool>,
     save_sync: Option<bool>,
+    state_sync: Option<bool>,
     music: Option<bool>,
     music_volume: Option<u8>,
 }
@@ -490,6 +546,9 @@ pub fn update_settings(
         }
         if let Some(v) = patch.save_sync {
             cfg.save_sync = v;
+        }
+        if let Some(v) = patch.state_sync {
+            cfg.state_sync = v;
         }
         if let Some(v) = patch.fast_renderer {
             cfg.fast_renderer = v;

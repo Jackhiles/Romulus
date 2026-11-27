@@ -150,6 +150,11 @@
         cycle: () => patch({ save_sync: !s.save_sync }),
       },
       {
+        label: 'Save state sync',
+        value: s.state_sync ? 'On · same emulator only' : 'Off',
+        cycle: () => patch({ state_sync: !s.state_sync }),
+      },
+      {
         label: 'Renderer',
         value: s.fast_renderer ? 'Fast' : 'Compatible (slower)',
         cycle: async () => {

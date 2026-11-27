@@ -77,7 +77,9 @@ export function initDevice() {
         const min = Math.round(e.duration_ms / 60000)
         const played = e.duration_ms >= 30000 ? `Played for ${min < 1 ? 'under a minute' : `${min} min`}. ` : ''
         const save = saveMessage(e.save, 'after')
-        if (played || save) toast(`${played}${save}`.trim(), e.save?.startsWith('failed') || e.save === 'conflict' ? 'error' : 'info', 6000)
+        const states = e.states ? ` ${e.states === 1 ? 'A save state' : `${e.states} save states`} uploaded.` : ''
+        if (played || save || states)
+          toast(`${played}${save}${states}`.trim(), e.save?.startsWith('failed') || e.save === 'conflict' ? 'error' : 'info', 6000)
         break
       }
       case 'failed':

@@ -10,6 +10,7 @@
   import {
     achievements,
     api,
+    collections,
     music,
     assetUrl,
     type Achievements,
@@ -43,6 +44,33 @@
   let sync = $state<SaveSyncStatus | null>(null)
   let ra = $state<Achievements | null>(null)
   let versions = $state<Rom[]>([])
+  let fav = $state(false)
+  let favBusy = $state(false)
+
+  $effect(() => {
+    const want = id
+    collections
+      .isFavourite(want)
+      .then((f) => {
+        if (want === id) fav = f
+      })
+      .catch(() => {})
+  })
+
+  async function toggleFavourite() {
+    if (favBusy) return
+    favBusy = true
+    const want = id
+    try {
+      const now = await collections.setFavourite(want, !fav)
+      if (want === id) fav = now
+      toast(now ? 'Added to Favourites' : 'Removed from Favourites')
+    } catch (e) {
+      toast(String(e), 'error', 8000)
+    } finally {
+      favBusy = false
+    }
+  }
 
   $effect(() => {
     const want = id
@@ -156,6 +184,7 @@
       else {
         const m = saveMessage(r.save, 'before')
         if (m) toast(m, r.save?.startsWith('failed') ? 'error' : 'info', 5000)
+        if (r.states) toast(`Restored ${r.states === 1 ? 'a save state' : `${r.states} save states`} from RomM.`, 'info', 5000)
         if (r.warning) toast(r.warning, 'error', 15000)
       }
     } catch (e) {
@@ -196,6 +225,9 @@
       case 'rt':
         switchVersion(action === 'rt' ? 1 : -1)
         return true
+      case 'start':
+        toggleFavourite()
+        return true
       case 'select':
         // Opened by "Surprise me": another random game.
         if (surprise) api.randomRom().then((r) => r && (id = r.id))
@@ -235,6 +267,7 @@
     if (ra) h.push(['y', 'Achievements'])
     if (versions.length > 1) h.push(['rt', 'Version'])
     if (surprise) h.push(['select', 'Another'])
+    if (rom) h.push(['start', fav ? 'Unfavourite' : 'Favourite'])
     h.push(['b', 'Back'])
     return h
   })
@@ -271,6 +304,7 @@
             {#if status?.state === 'installed'}
               <span class="on-device">On this Deck</span>
             {/if}
+            {#if fav}<span class="fav">★ Favourite</span>{/if}
             {#if status?.state === 'unavailable'}<span class="reason">{status.reason}</span>{/if}
           {/if}
           {#if shots.length > 1}
@@ -282,6 +316,7 @@
         <div class="sync-line" class:warn={!!sync?.note && sync.syncs}>
           {#if sync}{syncText(sync)}{/if}
         </div>
+        {#if sync?.states}<div class="sync-line">{sync.states}</div>{/if}
         {#if ra}
           <div class="ra">
             <div class="ra-sum">
@@ -410,6 +445,10 @@
   .on-device,
   .reason {
     color: var(--muted);
+    font-size: 14px;
+  }
+  .fav {
+    color: #f5c451;
     font-size: 14px;
   }
   .progress {

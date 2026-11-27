@@ -26,6 +26,8 @@ pub struct Config {
     pub music_volume: u8,
     /// Sync saves with RomM before and after playing.
     pub save_sync: bool,
+    /// Also sync save states (only with states from the same emulator).
+    pub state_sync: bool,
     /// Use WebKitGTK's DMA-BUF renderer (default; much faster, but a blank window on
     /// some GPUs, in which case Settings or ROMULUS_RENDERER=compatible switch it off).
     pub fast_renderer: bool,
@@ -53,6 +55,7 @@ impl Default for Config {
             cover_cache_mb: 1024,
             fast_renderer: true,
             save_sync: true,
+            state_sync: true,
             music: true,
             music_volume: 40,
             web_gamepad: false,

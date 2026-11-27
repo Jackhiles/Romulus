@@ -32,6 +32,7 @@ const settings = {
   web_gamepad: false,
   fast_renderer: true,
   save_sync: true,
+  state_sync: true,
   music: true,
   music_volume: 40,
   systems_view: 'carousel',
@@ -53,6 +54,7 @@ function emit(event: string, payload: unknown) {
 // Device state: one game starts installed, downloads take a few seconds.
 const installed = new Set<number>([lib.roms[0]?.id])
 const conflicted = new Set<number>()
+const favourites = new Set<number>([lib.roms[40]?.id, lib.roms[120]?.id].filter((x): x is number => x !== undefined))
 const downloading = new Map<number, ReturnType<typeof setInterval>>()
 
 const handlers: Record<string, (a: any) => unknown> = {
@@ -105,6 +107,14 @@ const handlers: Record<string, (a: any) => unknown> = {
       : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
   downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
   versions: () => [],
+  romm_collections: () => [
+    { id: 1, smart: false, name: 'Favourites', is_favorite: true, rom_ids: [...favourites] },
+    { id: 2, smart: false, name: 'Couch co-op', is_favorite: false, rom_ids: [3, 9, 27] },
+  ],
+  collection_games: ({ id }) =>
+    (id === 1 ? lib.roms.filter((r) => favourites.has(r.id)) : [lib.roms[3], lib.roms[9], lib.roms[27]].filter(Boolean)).map(row),
+  is_favourite: ({ romId }) => favourites.has(romId),
+  set_favourite: ({ romId, on }) => (on ? favourites.add(romId) : favourites.delete(romId), favourites.has(romId)),
   random_rom: () => row(lib.roms[Math.floor(Math.random() * lib.roms.length)]),
   preview_music: () => false,
   stop_music: () => null,
@@ -124,7 +134,7 @@ const handlers: Record<string, (a: any) => unknown> = {
     ] },
   ],
   download_bios: () => ({ installed: 1, failed: [] }),
-  save_sync_status: () => ({ syncs: true, emulator: 'retroarch-swanstation', note: null, synced_at: new Date(Date.now() - 300000).toISOString(), pending: false }),
+  save_sync_status: () => ({ syncs: true, emulator: 'retroarch-swanstation', note: null, synced_at: new Date(Date.now() - 300000).toISOString(), pending: false, states: 'Save states sync too' }),
   status: () => ({
     app_name: 'Romulus',
     version: 'dev',
