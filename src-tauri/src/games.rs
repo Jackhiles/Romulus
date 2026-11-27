@@ -248,7 +248,11 @@ enum GameEvent {
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum PlayStart {
     /// The game is starting; `save` says what happened to its save first.
-    Started { save: Option<String> },
+    Started {
+        save: Option<String>,
+        /// Something to tell the player before the game appears.
+        warning: Option<String>,
+    },
     /// The Deck and RomM both have newer saves: ask, then call `play_rom` with a choice.
     Conflict { info: sync::ConflictInfo },
 }
@@ -496,7 +500,11 @@ pub async fn play_rom(
             }
         }
     });
-    Ok(PlayStart::Started { save: note })
+    let warning = located.as_ref().and_then(|l| l.warning.clone());
+    Ok(PlayStart::Started {
+        save: note,
+        warning,
+    })
 }
 
 /// Whether and how this game's save syncs, for the detail page.
@@ -510,7 +518,10 @@ pub async fn save_sync_status(state: State<'_, AppState>, rom_id: i64) -> Res<Op
         return Ok(None);
     };
     Ok(match save_location(&state, &cache, &inst) {
-        Ok(l) => Some(format!("Saves sync with RomM ({})", l.emulator)),
+        Ok(l) => Some(match l.warning {
+            Some(w) => w,
+            None => format!("Saves sync with RomM ({})", l.emulator),
+        }),
         Err(why) => Some(format!("Saves don't sync: {why}")),
     })
 }

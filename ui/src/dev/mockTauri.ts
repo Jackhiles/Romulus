@@ -95,7 +95,7 @@ const handlers: Record<string, (a: any) => unknown> = {
     }
     emit('game', { stage: 'started', rom_id: romId })
     setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000, save: 'uploaded' }), 2500)
-    return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null }
+    return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null, warning: null }
   },
   save_sync_status: () => 'Saves sync with RomM (retroarch-swanstation)',
   status: () => ({

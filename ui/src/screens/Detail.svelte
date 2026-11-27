@@ -103,6 +103,7 @@
       else {
         const m = saveMessage(r.save, 'before')
         if (m) toast(m, r.save?.startsWith('failed') ? 'error' : 'info', 5000)
+        if (r.warning) toast(r.warning, 'error', 15000)
       }
     } catch (e) {
       toast(String(e), 'error', 6000)

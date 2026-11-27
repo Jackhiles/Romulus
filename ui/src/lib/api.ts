@@ -200,7 +200,7 @@ export interface SaveConflict {
   server_device: string | null
 }
 
-export type PlayStart = { state: 'started'; save: string | null } | { state: 'conflict'; info: SaveConflict }
+export type PlayStart = { state: 'started'; save: string | null; warning: string | null } | { state: 'conflict'; info: SaveConflict }
 
 export const games = {
   status: (romId: number) => invoke<InstallStatus>('install_status', { romId }),

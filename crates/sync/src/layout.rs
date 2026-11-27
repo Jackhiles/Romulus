@@ -35,7 +35,19 @@ pub struct Located {
     pub upload_name: String,
     /// Extension of compatible saves on RomM (`srm`, `zip`).
     pub ext: &'static str,
+    /// Something the player should know before playing (e.g. an unformatted card).
+    pub warning: Option<String>,
 }
+
+/// PCSX2 treats a folder card as formatted only when `_pcsx2_superblock` holds a PS2
+/// card header (it checks byte 0x16, the "o" of "Format"). A new card's superblock is
+/// empty until a game or the PS2 BIOS formats it, and until then saves in its folders
+/// don't appear. (PCSX2: MemoryCardFolder.cpp, IsFormatted / LoadMemoryCardData.)
+pub fn folder_card_formatted(card: &Path) -> bool {
+    std::fs::read(card.join("_pcsx2_superblock")).is_ok_and(|b| b.get(0x16) == Some(&0x6F))
+}
+
+const UNFORMATTED_CARD: &str = "PCSX2's memory card isn't formatted yet, so saves on it don't show. When the game offers to format the card, choose yes, then quit right away without saving and start the game again: your saves will be there.";
 
 /// `key = "value"` lines (retroarch.cfg).
 fn cfg_value(text: &str, key: &str) -> Option<String> {
@@ -103,6 +115,7 @@ pub fn locate(
                 emulator: emu.romm_name(),
                 upload_name: format!("{stem}.srm"),
                 ext: "srm",
+                warning: None,
             })
         }
         Emulator::Pcsx2 => {
@@ -128,6 +141,7 @@ pub fn locate(
                 (Some(t), Some("folder-prefix")) if !t.is_empty() => t.to_string(),
                 _ => return Err("RomM doesn't know this game's PS2 serial".into()),
             };
+            let warning = (!folder_card_formatted(&card)).then(|| UNFORMATTED_CARD.to_string());
             Ok(Located {
                 spec: SaveSpec::CardFolders {
                     card_dir: card,
@@ -136,6 +150,7 @@ pub fn locate(
                 emulator: emu.romm_name(),
                 upload_name: "autosave.zip".into(),
                 ext: "zip",
+                warning,
             })
         }
         Emulator::Other { label } => Err(format!("save sync for {label} isn't supported yet")),
@@ -235,6 +250,30 @@ mod tests {
             }
         );
         assert_eq!((l.emulator.as_str(), l.ext), ("pcsx2", "zip"));
+        // A new card (empty superblock, as PCSX2 creates it) is unformatted.
+        let cardd = d.path().join("saves/ps2/pcsx2/memcards/Memcard.ps2");
+        std::fs::write(cardd.join("_pcsx2_superblock"), b"").unwrap();
+        let l = locate(
+            &Emulator::Pcsx2,
+            game,
+            &ds,
+            Some("BASLUS-21008"),
+            Some("folder-prefix"),
+        )
+        .unwrap();
+        assert!(l.warning.is_some());
+        let mut sb = vec![0u8; 8192];
+        sb[..28].copy_from_slice(b"Sony PS2 Memory Card Format ");
+        std::fs::write(cardd.join("_pcsx2_superblock"), sb).unwrap();
+        let l = locate(
+            &Emulator::Pcsx2,
+            game,
+            &ds,
+            Some("BASLUS-21008"),
+            Some("folder-prefix"),
+        )
+        .unwrap();
+        assert_eq!(l.warning, None);
         assert!(locate(&Emulator::Pcsx2, game, &ds, None, None).is_err());
     }
 }

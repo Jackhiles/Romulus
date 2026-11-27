@@ -40,6 +40,7 @@ fn game(dir: &std::path::Path) -> Located {
         emulator: "retroarch-swanstation".into(),
         upload_name: "Game.srm".into(),
         ext: "srm",
+        warning: None,
     }
 }
 
