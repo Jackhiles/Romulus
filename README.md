@@ -5,9 +5,10 @@ Browse your self-hosted RomM library from a fullscreen "big picture" app that is
 Steam once, and (in later phases) download games on demand, launch them through RetroDECK,
 and keep saves, states and BIOS in sync.
 
-Status: **Browsing, downloading and playing through RetroDECK work on a Deck. Save sync
-(Phase 3) is built: RetroArch battery saves for every RetroArch system, and PCSX2 folder
-memory cards for PS2.** Other standalone emulators, save states and BIOS come next. See
+Status: **browsing, downloading, playing through RetroDECK and save sync work on a Deck.**
+Saves sync for RetroArch systems (PS1 with SwanStation, N64, GBA, NDS, ...), PS2 (PCSX2)
+and PSP (PPSSPP); BIOS files come from RomM; RetroAchievements progress shows per game;
+games play their soundtrack (from RomM or your own music folder). See
 [docs/SPEC.md](docs/SPEC.md) for the plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for how it works.
 
@@ -38,7 +39,9 @@ install it from Settings.
 | Y | Search |
 | ⧉ (Select) | Change layout: carousel / list / grid (systems), list / grid (games, remembered per system) |
 | LB / RB | Page up / down; previous / next game on the detail page |
-| LT / RT | Jump to previous / next letter |
+| LT / RT | Jump to previous / next letter; on a game's page, switch between its versions |
+| RT (systems screen) | Surprise me: a random game (Select on its page picks another) |
+| Y (game page) | RetroAchievements list |
 | ☰ (Start) | Settings |
 
 ## Where files go
@@ -49,7 +52,8 @@ install it from Settings.
 | Library cache | `~/.local/share/romulus/library-*.db` |
 | Covers | `~/.cache/romulus/covers/` (pruned at 1 GB) |
 | Logs | `~/.local/state/romulus/logs/` |
-| Save backups | `~/.local/share/romulus/backups/<game id>/` (every save Romulus replaces) |
+| Save backups | `~/.local/share/romulus/backups/<game id>/` (every save Romulus replaces; restore from Settings → Save backups) |
+| Your own game music | `~/.local/share/romulus/music/` (a file named like the game, e.g. `Katamari Damacy.mp3`) |
 | Credentials | `~/.config/romulus/credentials.json` (readable only by you) |
 
 ## Development
