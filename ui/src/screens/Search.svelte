@@ -1,34 +1,35 @@
 <script lang="ts">
-  // Search the cached library as you type. Down moves from the field into the results.
+  // Search the cached library as you type. Down moves from the field into the results;
+  // Up on the first result goes back to the field.
   import { onDestroy, onMount } from 'svelte'
-  import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
-  import VirtualGrid from '../components/VirtualGrid.svelte'
+  import GameBrowser from '../components/GameBrowser.svelte'
   import { api, type Rom } from '../lib/api'
-  import { page, step } from '../lib/grid'
-  import { onAction } from '../lib/input'
+  import { onAction, type Action } from '../lib/input'
   import { push, type Screen } from '../lib/nav.svelte'
 
-  let { entry }: { entry: Screen } = $props()
+  let { entry = $bindable() }: { entry: Screen } = $props()
 
   // svelte-ignore state_referenced_locally
   let query = $state(entry.query ?? '')
   let results = $state<Rom[]>([])
+  // Results mix systems, so each row names its system.
+  let systems = $state<Record<number, string>>({})
+  api.platforms().then((ps) => (systems = Object.fromEntries(ps.map((p) => [p.id, p.slug.toUpperCase()]))))
   // svelte-ignore state_referenced_locally
   let index = $state(entry.index ?? 0)
-  let cols = $state(1)
-  let rows = $state(1)
   // svelte-ignore state_referenced_locally
   let inField = $state(entry.index === undefined)
-  $effect(() => {
-    entry.query = query
-    entry.index = inField ? undefined : index
-  })
   let input: HTMLInputElement | undefined = $state()
   let timer: ReturnType<typeof setTimeout> | undefined
   let seq = 0
   // svelte-ignore state_referenced_locally
   let restoring = entry.index !== undefined
+
+  $effect(() => {
+    entry.query = query
+    entry.index = inField ? undefined : index
+  })
 
   onMount(() => {
     if (inField) {
@@ -61,44 +62,33 @@
     input?.focus()
   }
 
+  function toResults() {
+    if (results.length === 0) return
+    inField = false
+    input?.blur()
+  }
+
   const off = onAction(({ action }) => {
-    const n = results.length
     if (inField) {
-      if (action === 'down' && n > 0) {
-        inField = false
-        input?.blur()
-        return true
+      switch (action) {
+        case 'down':
+          toResults()
+          return true
+        case 'a':
+          if (document.activeElement !== input) {
+            input?.focus()
+            api.openKeyboard()
+          } else toResults()
+          return true
+        case 'x':
+          query = ''
+          return true
+        case 'b':
+          return false
       }
-      if (action === 'a') {
-        if (document.activeElement !== input) {
-          input?.focus()
-          api.openKeyboard()
-        } else if (n > 0) {
-          inField = false
-          input?.blur()
-        }
-        return true
-      }
-      if (action === 'x') {
-        query = ''
-        return true
-      }
-      return action !== 'b'
+      return true
     }
     switch (action) {
-      case 'up':
-        if (index < cols) toField()
-        else index = step(index, 'up', cols, n)
-        return true
-      case 'down': case 'left': case 'right':
-        index = step(index, action, cols, n)
-        return true
-      case 'lb':
-        index = page(index, -1, cols, rows, n)
-        return true
-      case 'rb':
-        index = page(index, 1, cols, rows, n)
-        return true
       case 'a':
         open(index)
         return true
@@ -112,6 +102,12 @@
     off()
     clearTimeout(timer)
   })
+
+  const hints = $derived<[Action, string][]>(
+    inField
+      ? [['a', 'Keyboard'], ['down', 'Results'], ['x', 'Clear'], ['b', 'Back']]
+      : [['a', 'Details'], ['y', 'Edit search'], ['b', 'Back']],
+  )
 </script>
 
 <div class="bar">
@@ -127,34 +123,25 @@
   />
   <span class="count">{query.trim() ? `${results.length}${results.length === 200 ? '+' : ''} found` : ''}</span>
 </div>
-<main>
-  {#if query.trim() && results.length === 0}
-    <div class="empty">No matches</div>
-  {:else}
-    <VirtualGrid items={results} bind:index bind:cols bind:rows tileWidth={172} tileHeight={230} gap={22} onactivate={open}>
-      {#snippet tile(r: Rom, _i: number, focused: boolean)}
-        <Cover path={r.cover_small} title={r.title} focused={focused && !inField} />
-      {/snippet}
-    </VirtualGrid>
-  {/if}
-</main>
-<div class="focus-title">{!inField ? (results[index]?.title ?? '') : ''}</div>
-<Footer
-  hints={inField
-    ? [['a', 'Keyboard'], ['down', 'Results'], ['x', 'Clear'], ['b', 'Back']]
-    : [['a', 'Details'], ['y', 'Edit search'], ['b', 'Back']]}
-/>
+{#if query.trim() && results.length === 0}
+  <div class="empty">No matches</div>
+{:else}
+  <GameBrowser roms={results} bind:index view="list" active={!inField} letters={false} onopen={open} ontop={toField} tag={(r) => systems[r.platform_id] ?? ''} />
+{/if}
+<Footer {hints} />
 
 <style>
   .bar {
+    position: relative;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 16px;
-    padding: 24px 32px 12px;
+    padding: 20px 36px 14px;
   }
   input {
     flex: 1;
-    font-size: 22px;
+    font-size: 20px;
     padding: 12px 18px;
   }
   input.active {
@@ -165,26 +152,12 @@
     min-width: 90px;
     text-align: right;
   }
-  main {
-    flex: 1;
-    min-height: 0;
-    padding: 0 20px;
-  }
   .empty {
-    height: 100%;
+    flex: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     color: var(--muted);
     font-size: 20px;
-  }
-  .focus-title {
-    padding: 0 32px;
-    height: 26px;
-    font-size: 18px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 </style>

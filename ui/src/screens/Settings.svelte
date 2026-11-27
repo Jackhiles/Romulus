@@ -21,6 +21,8 @@
   let rowsEl: HTMLElement | undefined = $state()
 
   const LEVELS = ['error', 'warn', 'info', 'debug', 'trace']
+  const SYSTEMS_VIEWS: Settings['systems_view'][] = ['carousel', 'list', 'grid']
+  const SYSTEMS_VIEW_LABEL: Record<string, string> = { carousel: 'Carousel', list: 'List', grid: 'Grid' }
 
   async function load() {
     ;[status, settings] = await Promise.all([api.status(), api.settings()])
@@ -119,6 +121,14 @@
       updateRow,
       { label: 'Check for updates on start', value: s.check_updates ? 'On' : 'Off', cycle: () => patch({ check_updates: !s.check_updates }) },
       { label: 'Fullscreen', value: s.fullscreen ? 'On' : 'Off', cycle: () => patch({ fullscreen: !s.fullscreen }) },
+      {
+        label: 'Systems screen',
+        value: SYSTEMS_VIEW_LABEL[s.systems_view] ?? 'Carousel',
+        cycle: (d) => {
+          const i = SYSTEMS_VIEWS.indexOf(s.systems_view)
+          patch({ systems_view: SYSTEMS_VIEWS[(i + d + SYSTEMS_VIEWS.length) % SYSTEMS_VIEWS.length] })
+        },
+      },
       {
         label: 'Controller input',
         value: s.web_gamepad ? 'Browser Gamepad API (fallback)' : 'Native (recommended)',

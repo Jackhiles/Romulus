@@ -22,12 +22,16 @@
 
 <style>
   footer {
+    position: relative;
+    z-index: 2;
+    flex: none;
     display: flex;
     justify-content: flex-end;
-    gap: 22px;
-    padding: 10px 28px;
-    background: linear-gradient(to top, rgb(0 0 0 / 0.5), transparent);
-    font-size: 15px;
+    align-items: center;
+    gap: 24px;
+    height: 52px;
+    padding: 0 32px;
+    font-size: 14px;
     color: var(--muted);
   }
   .hint {

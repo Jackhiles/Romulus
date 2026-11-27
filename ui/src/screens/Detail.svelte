@@ -1,84 +1,66 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
+  import Backdrop from '../components/Backdrop.svelte'
   import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
+  import GameInfo from '../components/GameInfo.svelte'
   import { api, assetUrl, type RomDetail } from '../lib/api'
-  import { size } from '../lib/format'
+  import { screenshots } from '../lib/details.svelte'
+  import { hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
   import { toast } from '../lib/toast.svelte'
 
   let { romId, siblings = [] }: { romId: number; siblings?: number[] } = $props()
 
-  let id = $state(0)
+  // svelte-ignore state_referenced_locally
+  let id = $state(romId)
   let rom = $state<RomDetail | null>(null)
   let shots = $state<string[]>([])
   let shot = $state(0)
 
   $effect(() => {
-    id = romId
-  })
-
-  $effect(() => {
     const want = id
-    if (!want) return
     api.rom(want).then((r) => {
       if (want !== id) return
       rom = r
       shot = 0
       shots = []
-      const paths: string[] = (r?.data?.merged_screenshots ?? []).filter((p: unknown) => typeof p === 'string' && p.startsWith('/'))
-      Promise.all(paths.slice(0, 8).map((p) => assetUrl(p, () => want === id).catch(() => null))).then((urls) => {
+      const paths = screenshots(r).slice(0, 8)
+      Promise.all(paths.map((p) => assetUrl(p, () => want === id).catch(() => null))).then((urls) => {
         if (want === id) shots = urls.filter((u): u is string => !!u)
       })
     })
   })
 
-  const meta = $derived(rom?.data?.metadatum ?? {})
-  const year = $derived.by(() => {
-    const t = meta.first_release_date
-    if (!t) return null
-    return new Date(t > 1e11 ? t : t * 1000).getUTCFullYear()
-  })
-  const facts = $derived(
-    [
-      year && ['Released', String(year)],
-      meta.genres?.length && ['Genre', meta.genres.slice(0, 3).join(', ')],
-      (meta.developers?.length || meta.companies?.length) && ['Developer', (meta.developers?.length ? meta.developers : meta.companies).slice(0, 2).join(', ')],
-      meta.player_count && ['Players', meta.player_count],
-      rom?.data?.regions?.length && ['Region', rom.data.regions.join(', ')],
-      rom && ['File', `${rom.fs_name} · ${size(rom.size_bytes)}`],
-    ].filter(Boolean) as [string, string][],
-  )
-
   function sibling(delta: number) {
     const i = siblings.indexOf(id)
-    if (i < 0) return
-    const next = siblings[i + delta]
+    const next = i >= 0 ? siblings[i + delta] : undefined
     if (next) id = next
+  }
+
+  function play() {
+    toast('Downloading and playing arrive in Phase 2.')
   }
 
   const off = onAction(({ action }) => {
     switch (action) {
       case 'a':
-        toast('Downloading and playing arrive in Phase 2.')
+        play()
         return true
       case 'lb':
-        sibling(-1)
-        return true
       case 'rb':
-        sibling(1)
+        sibling(action === 'rb' ? 1 : -1)
         return true
       case 'left':
-        if (shots.length) shot = (shot - 1 + shots.length) % shots.length
-        return true
       case 'right':
-        if (shots.length) shot = (shot + 1) % shots.length
+        if (shots.length > 1) shot = (shot + (action === 'right' ? 1 : -1) + shots.length) % shots.length
         return true
     }
     return false
   })
   onDestroy(off)
 
+  const platform = $derived(typeof rom?.data?.platform_display_name === 'string' ? rom.data.platform_display_name : '')
   const hints = $derived.by(() => {
     const h: [Action, string][] = [['a', 'Play']]
     if (shots.length > 1) h.push(['right', 'Screenshots'])
@@ -89,28 +71,24 @@
 </script>
 
 <div class="detail">
-  {#if shots[shot]}
-    <div class="backdrop" style:background-image="url({shots[shot]})"></div>
-  {/if}
+  <Backdrop src={shots[shot] ?? null} hue={hueOf(String(rom?.data?.platform_slug ?? ''))} strength={0.3} />
   {#if rom}
-    <div class="cover"><Cover path={rom.cover_large ?? rom.cover_small} title={rom.title} /></div>
-    <div class="info">
-      <h1>{rom.title}</h1>
-      <dl>
-        {#each facts as [k, v] (k)}
-          <dt>{k}</dt>
-          <dd>{v}</dd>
-        {/each}
-      </dl>
-      {#if rom.data?.summary}<p class="summary">{rom.data.summary}</p>{/if}
-      <div class="actions">
-        <button class="primary focused" tabindex="-1" onclick={() => toast('Downloading and playing arrive in Phase 2.')}>▶ Play</button>
-      </div>
-      {#if shots.length > 1}
-        <div class="dots">
-          {#each shots as _, i (i)}<span class:on={i === shot}></span>{/each}
+    <div class="body">
+      <div class="cover"><Cover path={rom.cover_large ?? rom.cover_small} title={rom.title} /></div>
+      <div class="info">
+        {#if platform}<div class="platform">{platform}</div>{/if}
+        <GameInfo title={rom.title} detail={rom} lines={7} size="lg" />
+        <!-- Multi-disc games report the size of their small playlist file only. -->
+        <div class="file">{rom.fs_name}{rom.size_bytes >= 1024 ? ` · ${size(rom.size_bytes)}` : ''}</div>
+        <div class="actions">
+          <button class="play" tabindex="-1" onclick={play}>▶ Play</button>
+          {#if shots.length > 1}
+            <div class="dots">
+              {#each shots as _, i (i)}<span class:on={i === shot}></span>{/each}
+            </div>
+          {/if}
         </div>
-      {/if}
+      </div>
     </div>
   {/if}
 </div>
@@ -118,74 +96,68 @@
 
 <style>
   .detail {
+    position: relative;
     flex: 1;
     min-height: 0;
-    display: flex;
-    gap: 40px;
-    padding: 40px 48px 10px;
-    position: relative;
     overflow: hidden;
   }
-  .backdrop {
-    position: absolute;
-    inset: 0;
-    background-size: cover;
-    background-position: center;
-    opacity: 0.16;
-    transition: background-image 200ms;
+  .body {
+    position: relative;
+    z-index: 1;
+    height: 100%;
+    display: flex;
+    gap: 44px;
+    padding: 56px 56px 16px;
   }
   .cover {
-    position: relative;
     flex: none;
     width: 300px;
     height: 400px;
   }
   .info {
-    position: relative;
     flex: 1;
     min-width: 0;
+    max-width: 720px;
     display: flex;
     flex-direction: column;
     gap: 14px;
   }
-  h1 {
-    margin: 0;
-    font-size: 34px;
-    line-height: 1.15;
+  .platform {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--accent);
   }
-  dl {
-    display: grid;
-    grid-template-columns: max-content 1fr;
-    gap: 6px 18px;
-    margin: 0;
-    font-size: 15px;
-  }
-  dt {
+  .file {
     color: var(--muted);
-  }
-  dd {
-    margin: 0;
+    font-size: 13px;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  .summary {
-    margin: 0;
-    font-size: 15px;
-    line-height: 1.55;
-    color: #c9ccd4;
-    overflow: hidden;
-    display: -webkit-box;
-    -webkit-line-clamp: 6;
-    line-clamp: 6;
-    -webkit-box-orient: vertical;
   }
   .actions {
-    margin-top: auto;
+    margin-top: 12px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .play {
+    padding: 14px 40px;
+    font-size: 19px;
+    font-weight: 700;
+    color: #fff;
+    background: var(--accent);
+    border: 0;
+    border-radius: 12px;
+    box-shadow:
+      0 0 0 3px var(--bg),
+      0 0 0 6px var(--accent);
+    cursor: pointer;
   }
   .dots {
     display: flex;
-    gap: 6px;
+    gap: 7px;
   }
   .dots span {
     width: 8px;

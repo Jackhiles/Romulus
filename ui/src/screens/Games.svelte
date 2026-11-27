@@ -1,49 +1,65 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
-  import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
+  import GameBrowser from '../components/GameBrowser.svelte'
   import Header from '../components/Header.svelte'
-  import VirtualGrid from '../components/VirtualGrid.svelte'
-  import { api, type Rom, type Sort } from '../lib/api'
-  import { jumpLetter, letterOf, page, step } from '../lib/grid'
-  import { onAction } from '../lib/input'
+  import { api, type GamesView, type Platform, type Rom, type Sort } from '../lib/api'
+  import { hueOf } from '../lib/format'
+  import { onAction, type Action } from '../lib/input'
   import { library } from '../lib/library.svelte'
   import { push, type Screen } from '../lib/nav.svelte'
 
-  let { platformId, platformName, entry }: { platformId: number; platformName: string; entry: Screen } = $props()
+  let { entry = $bindable() }: { entry: Screen } = $props()
+  // App only mounts this screen for a 'games' entry.
+  const g = $derived(entry as Extract<Screen, { name: 'games' }>)
 
   let roms = $state<Rom[]>([])
   // svelte-ignore state_referenced_locally
-  let index = $state(entry.index ?? 0)
-  let cols = $state(1)
-  let rows = $state(1)
+  let index = $state(g.index ?? 0)
   // svelte-ignore state_referenced_locally
-  let sort = $state<Sort>(entry.sort ?? 'title')
+  let sort = $state<Sort>(g.sort ?? 'title')
+  let view = $state<GamesView>('list')
+  let views: Record<string, GamesView> = {}
+  let platforms: Platform[] = []
+
   $effect(() => {
-    entry.index = index
-    entry.sort = sort
+    g.index = index
+    g.sort = sort
   })
-  let letter = $state<string | null>(null)
-  let letterTimer: ReturnType<typeof setTimeout> | undefined
+
+  api.settings().then((s) => {
+    views = s.games_view ?? {}
+    view = views[g.platformSlug] ?? 'list'
+  })
+  api.platforms().then((p) => (platforms = p))
 
   $effect(() => {
     void library.revision
+    const pid = g.platformId
     const order = sort
-    // Keep focus on the same game across reloads (read without tracking, or this
-    // effect would re-run every time it loads).
+    // Keep focus on the same game across reloads (read untracked, or this effect would
+    // re-run every time it loads).
     const keep = untrack(() => roms[index]?.id)
-    api.roms(platformId, order).then((r) => {
+    api.roms(pid, order).then((r) => {
+      if (pid !== g.platformId) return
       roms = r
       const i = keep ? r.findIndex((x) => x.id === keep) : -1
       index = i >= 0 ? i : Math.min(index, Math.max(r.length - 1, 0))
     })
   })
 
-  function showLetter() {
-    if (sort !== 'title') return
-    letter = letterOf(roms[index]?.title ?? '')
-    clearTimeout(letterTimer)
-    letterTimer = setTimeout(() => (letter = null), 700)
+  /** ES-DE-style: left/right in the list moves to the previous/next system. */
+  function switchSystem(delta: 1 | -1) {
+    const n = platforms.length
+    if (n < 2) return
+    const i = platforms.findIndex((p) => p.id === g.platformId)
+    const p = platforms[(i + delta + n) % n]
+    roms = []
+    index = 0
+    g.platformId = p.id
+    g.platformName = p.name
+    g.platformSlug = p.slug
+    view = views[p.slug] ?? 'list'
   }
 
   function open(i: number) {
@@ -52,25 +68,10 @@
   }
 
   const off = onAction(({ action }) => {
-    const n = roms.length
     switch (action) {
-      case 'up': case 'down': case 'left': case 'right':
-        index = step(index, action, cols, n)
-        return true
-      case 'lb':
-        index = page(index, -1, cols, rows, n)
-        return true
-      case 'rb':
-        index = page(index, 1, cols, rows, n)
-        return true
-      case 'lt':
-      case 'rt':
-        if (sort === 'title') {
-          index = jumpLetter(roms.map((r) => r.title), index, action === 'rt' ? 1 : -1)
-          showLetter()
-        } else {
-          index = page(index, action === 'rt' ? 3 : -3, cols, rows, n)
-        }
+      case 'left':
+      case 'right':
+        switchSystem(action === 'right' ? 1 : -1)
         return true
       case 'a':
         open(index)
@@ -78,6 +79,11 @@
       case 'x':
         sort = sort === 'title' ? 'newest' : 'title'
         index = 0
+        return true
+      case 'select':
+        view = view === 'list' ? 'grid' : 'list'
+        views[g.platformSlug] = view
+        api.setGamesView(g.platformSlug, view).catch(() => {})
         return true
       case 'y':
         push({ name: 'search' })
@@ -88,64 +94,18 @@
     }
     return false
   })
-  onDestroy(() => {
-    off()
-    clearTimeout(letterTimer)
-  })
+  onDestroy(off)
 
-  const focused = $derived(roms[index])
+  const hints = $derived<[Action, string][]>([
+    ['a', 'Details'],
+    ...(view === 'list' ? ([['right', 'System']] as [Action, string][]) : []),
+    ['x', sort === 'title' ? 'Newest first' : 'A–Z'],
+    ['select', view === 'list' ? 'Grid' : 'List'],
+    ['y', 'Search'],
+    ['b', 'Back'],
+  ])
 </script>
 
-<Header title={platformName} subtitle={`${roms.length} games · ${sort === 'title' ? 'A–Z' : 'Newest'}`} />
-<main>
-  <VirtualGrid items={roms} bind:index bind:cols bind:rows tileWidth={172} tileHeight={230} gap={22} onactivate={open}>
-    {#snippet tile(r: Rom, _i: number, isFocused: boolean)}
-      <Cover path={r.cover_small} title={r.title} focused={isFocused} />
-    {/snippet}
-  </VirtualGrid>
-  {#if letter}<div class="letter">{letter}</div>{/if}
-</main>
-<div class="focus-title">{focused?.title ?? ''}</div>
-<Footer
-  hints={[
-    ['a', 'Details'],
-    ['x', sort === 'title' ? 'Sort: newest' : 'Sort: A–Z'],
-    ['y', 'Search'],
-    ['lt', sort === 'title' ? 'Letter' : 'Jump'],
-    ['b', 'Back'],
-  ]}
-/>
-
-<style>
-  main {
-    flex: 1;
-    min-height: 0;
-    padding: 0 20px;
-    position: relative;
-  }
-  .focus-title {
-    padding: 0 32px;
-    height: 26px;
-    font-size: 18px;
-    font-weight: 600;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .letter {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    width: 140px;
-    height: 140px;
-    border-radius: 24px;
-    background: rgb(0 0 0 / 0.7);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 80px;
-    font-weight: 800;
-    pointer-events: none;
-  }
-</style>
+<Header title={g.platformName} subtitle={`${roms.length} games${sort === 'newest' ? ' · newest first' : ''}`} />
+<GameBrowser {roms} bind:index {view} hue={hueOf(g.platformSlug)} letters={sort === 'title'} onopen={open} />
+<Footer {hints} />

@@ -64,7 +64,12 @@ export interface Settings {
   fullscreen: boolean
   cover_cache_mb: number
   web_gamepad: boolean
+  systems_view: SystemsView
+  games_view: Record<string, GamesView>
 }
+
+export type SystemsView = 'carousel' | 'list' | 'grid'
+export type GamesView = 'list' | 'grid'
 
 export type Sort = 'title' | 'newest'
 
@@ -94,6 +99,9 @@ export const api = {
   whatsNew: () => invoke<string | null>('whats_new'),
   settings: () => invoke<Settings>('settings'),
   updateSettings: (patch: Partial<Settings>) => invoke<void>('update_settings', { patch }),
+  setGamesView: (platform: string, view: GamesView) => invoke<void>('set_games_view', { platform, view }),
+  platformCovers: (perPlatform: number) =>
+    invoke<Record<string, string[]>>('platform_covers', { perPlatform }),
   debugInfo: () => invoke<string>('debug_info'),
   openKeyboard: () => invoke<void>('open_keyboard'),
   addToSteam: () => invoke<string>('add_to_steam'),

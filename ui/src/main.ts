@@ -4,6 +4,12 @@ import './app.css'
 import App from './App.svelte'
 import { startInput } from './lib/input'
 
+// Development only: run the UI in a browser against a fixture instead of the Rust
+// backend (see src/dev/mockTauri.ts). Removed from production builds.
+if (import.meta.env.DEV && import.meta.env.VITE_MOCK && !('__TAURI_INTERNALS__' in window)) {
+  await import('./dev/mockTauri')
+}
+
 startInput()
 
 // Send UI errors to the Rust log file (the webview has no console on the Deck).

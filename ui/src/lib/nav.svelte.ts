@@ -12,7 +12,7 @@ export type Screen = Saved &
   (
     | { name: 'setup' }
     | { name: 'platforms' }
-    | { name: 'games'; platformId: number; platformName: string }
+    | { name: 'games'; platformId: number; platformName: string; platformSlug: string }
     | { name: 'detail'; romId: number; siblings?: number[] }
     | { name: 'search' }
     | { name: 'settings' }

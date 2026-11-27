@@ -71,13 +71,13 @@
       {#if top.name === 'setup'}
         <Setup initialServer={library.needsSignIn ? server : ''} ondone={signedIn} />
       {:else if top.name === 'platforms'}
-        <Platforms entry={top} />
+        <Platforms bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'games'}
-        <Games platformId={top.platformId} platformName={top.platformName} entry={top} />
+        <Games bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'detail'}
         <Detail romId={top.romId} siblings={top.siblings} />
       {:else if top.name === 'search'}
-        <Search entry={top} />
+        <Search bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'settings'}
         <Settings onsignout={toSetup} />
       {/if}

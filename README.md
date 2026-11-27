@@ -29,11 +29,12 @@ install it from Settings.
 
 | Button | Action |
 |---|---|
-| D-pad / left stick | Move |
+| D-pad / left stick | Move. In a system's game list, left / right switch to the previous / next system |
 | A | Open / select |
 | B | Back |
-| X | Sync library (platforms), change sort (games) |
+| X | Sync library (systems screen), newest first / A–Z (games) |
 | Y | Search |
+| ⧉ (Select) | Change layout: carousel / list / grid (systems), list / grid (games, remembered per system) |
 | LB / RB | Page up / down; previous / next game on the detail page |
 | LT / RT | Jump to previous / next letter |
 | ☰ (Start) | Settings |
@@ -63,7 +64,12 @@ ui/node_modules/.bin/tauri build --bundles appimage
 ```
 
 Keyboard works for development: arrows, Enter (A), Esc (B), `x`, `y`, `q`/`e` (LB/RB),
-`[`/`]` (LT/RT), F1 (☰).
+`[`/`]` (LT/RT), Tab (⧉), F1 (☰).
+
+The UI can also run in a plain browser without the Rust side, against a fixture folder
+(`library.json`, `assets.json`, `assets/`; see `ui/src/dev/mockTauri.ts`) served with CORS:
+`VITE_MOCK=http://127.0.0.1:1421 npm --prefix ui run dev`. The mock is dev-only and never
+part of a build.
 
 Releasing: bump `version` in the root `Cargo.toml`, commit, and push a tag `vX.Y.Z`, or
 start Actions → Release → Run workflow with the tag name (it creates the tag). The release
