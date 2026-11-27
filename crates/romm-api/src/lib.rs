@@ -8,18 +8,22 @@
 //! refreshes an expired OAuth access token once and retries the request.
 
 mod auth;
+mod collections;
 mod error;
 mod files;
 mod firmware;
 mod saves;
+mod states;
 mod types;
 mod user;
 
 pub use auth::{Credentials, DEFAULT_SCOPES, DeviceAuthInit, DeviceInfo, DevicePoll};
+pub use collections::{Collection, FAVOURITES_NAME};
 pub use error::{Error, Result};
 pub use files::{Download, PlaySession, RomFile, RomFiles};
 pub use firmware::Firmware;
 pub use saves::{SaveUpload, ServerSave};
+pub use states::{ServerState, strip_time_tag};
 pub use types::*;
 pub use user::{EarnedAchievement, RaGameProgress, RaProgression};
 
@@ -49,6 +53,11 @@ pub const USED_PATHS: &[&str] = &[
     "/api/firmware/{id}/content/{file_name}",
     "/api/saves/{id}/content",
     "/api/saves/{id}/downloaded",
+    "/api/collections",
+    "/api/collections/smart",
+    "/api/collections/{id}/roms",
+    "/api/states",
+    "/api/states/{id}/content",
 ];
 
 /// Called when the client gets new credentials (after a refresh), so they can be stored.

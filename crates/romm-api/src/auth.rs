@@ -15,6 +15,7 @@ pub const DEFAULT_SCOPES: &[&str] = &[
     "roms.user.read",
     "roms.user.write",
     "collections.read",
+    "collections.write",
     "devices.read",
     "devices.write",
 ];
