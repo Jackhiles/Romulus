@@ -76,8 +76,7 @@ pub async fn bios_status(state: State<'_, AppState>) -> Res<Vec<BiosSystem>> {
     }
     let mut out: Vec<BiosSystem> = by.into_values().collect();
     for s in &mut out {
-        s.files
-            .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+        s.files.sort_by_key(|f| f.name.to_lowercase());
     }
     Ok(out)
 }

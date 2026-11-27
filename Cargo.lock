@@ -2489,6 +2489,7 @@ dependencies = [
  "fs4",
  "futures-util",
  "hex",
+ "md-5",
  "romm-api",
  "serde",
  "serde_json",
