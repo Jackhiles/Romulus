@@ -65,6 +65,7 @@ export interface Settings {
   cover_cache_mb: number
   web_gamepad: boolean
   fast_renderer: boolean
+  save_sync: boolean
   systems_view: SystemsView
   games_view: Record<string, GamesView>
 }
@@ -188,8 +189,18 @@ export type DownloadEvent =
 
 export type GameEvent =
   | { stage: 'started'; rom_id: number }
-  | { stage: 'ended'; rom_id: number; duration_ms: number }
+  | { stage: 'ended'; rom_id: number; duration_ms: number; save: string | null }
   | { stage: 'failed'; rom_id: number; message: string }
+
+export type SaveChoice = 'keep_local' | 'use_server'
+
+export interface SaveConflict {
+  local_modified: string | null
+  server_updated: string
+  server_device: string | null
+}
+
+export type PlayStart = { state: 'started'; save: string | null } | { state: 'conflict'; info: SaveConflict }
 
 export const games = {
   status: (romId: number) => invoke<InstallStatus>('install_status', { romId }),
@@ -197,7 +208,8 @@ export const games = {
   download: (romId: number) => invoke<void>('download_rom', { romId }),
   cancel: (romId: number) => invoke<void>('cancel_download', { romId }),
   remove: (romId: number) => invoke<void>('remove_rom', { romId }),
-  play: (romId: number) => invoke<void>('play_rom', { romId }),
+  play: (romId: number, choice?: SaveChoice) => invoke<PlayStart>('play_rom', { romId, choice: choice ?? null }),
+  saveSyncStatus: (romId: number) => invoke<string | null>('save_sync_status', { romId }),
 }
 
 export function onDownload(f: (e: DownloadEvent) => void): Promise<UnlistenFn> {

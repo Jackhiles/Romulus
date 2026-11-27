@@ -56,6 +56,13 @@ CREATE TABLE play_sessions (
     duration_ms INTEGER NOT NULL
 );
 "#,
+    r#"
+-- Each game's save as it was when last in sync with RomM (the sync crate's Record, JSON).
+CREATE TABLE save_sync (
+    rom_id INTEGER PRIMARY KEY,
+    data   TEXT NOT NULL
+);
+"#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -466,6 +473,25 @@ impl Cache {
         Ok(())
     }
 
+    pub fn save_record(&self, rom_id: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT data FROM save_sync WHERE rom_id = ?1",
+                [rom_id],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn set_save_record(&self, rom_id: i64, data: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO save_sync (rom_id, data) VALUES (?1, ?2) ON CONFLICT(rom_id) DO UPDATE SET data = excluded.data",
+            params![rom_id, data],
+        )?;
+        Ok(())
+    }
+
     pub fn queue_play_session(&self, s: &QueuedSession) -> Result<()> {
         self.conn.execute(
             "INSERT INTO play_sessions (rom_id, start_time, end_time, duration_ms) VALUES (?1, ?2, ?3, ?4)",
@@ -601,6 +627,14 @@ pub(crate) mod tests {
         assert_eq!(c.installed_ids().unwrap(), [5]);
         c.remove_install(5).unwrap();
         assert!(c.install(5).unwrap().is_none());
+
+        assert!(c.save_record(5).unwrap().is_none());
+        c.set_save_record(5, "{}").unwrap();
+        c.set_save_record(5, r#"{"server_id":3}"#).unwrap();
+        assert_eq!(
+            c.save_record(5).unwrap().as_deref(),
+            Some(r#"{"server_id":3}"#)
+        );
 
         let s = QueuedSession {
             rom_id: 5,

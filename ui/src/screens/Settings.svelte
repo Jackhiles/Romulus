@@ -130,6 +130,11 @@
         },
       },
       {
+        label: 'Save sync',
+        value: s.save_sync ? 'On · before and after playing' : 'Off',
+        cycle: () => patch({ save_sync: !s.save_sync }),
+      },
+      {
         label: 'Renderer',
         value: s.fast_renderer ? 'Fast' : 'Compatible (slower)',
         cycle: async () => {

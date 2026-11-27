@@ -422,6 +422,7 @@ pub struct SettingsPatch {
     web_gamepad: Option<bool>,
     systems_view: Option<String>,
     fast_renderer: Option<bool>,
+    save_sync: Option<bool>,
 }
 
 #[tauri::command]
@@ -450,6 +451,9 @@ pub fn update_settings(
         if let Some(v) = patch.web_gamepad {
             cfg.web_gamepad = v;
             state.input_paused.store(v, Ordering::Relaxed);
+        }
+        if let Some(v) = patch.save_sync {
+            cfg.save_sync = v;
         }
         if let Some(v) = patch.fast_renderer {
             cfg.fast_renderer = v;

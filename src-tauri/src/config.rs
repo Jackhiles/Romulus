@@ -20,6 +20,8 @@ pub struct Config {
     pub fullscreen: bool,
     /// Max size of the cover cache in MB.
     pub cover_cache_mb: u64,
+    /// Sync saves with RomM before and after playing.
+    pub save_sync: bool,
     /// Use WebKitGTK's DMA-BUF renderer (default; much faster, but a blank window on
     /// some GPUs, in which case Settings or ROMULUS_RENDERER=compatible switch it off).
     pub fast_renderer: bool,
@@ -46,6 +48,7 @@ impl Default for Config {
             fullscreen: true,
             cover_cache_mb: 1024,
             fast_renderer: true,
+            save_sync: true,
             web_gamepad: false,
             last_run_version: None,
             retrodeck_roms: None,

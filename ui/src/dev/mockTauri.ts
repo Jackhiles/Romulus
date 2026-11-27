@@ -31,6 +31,7 @@ const settings = {
   cover_cache_mb: 1024,
   web_gamepad: false,
   fast_renderer: true,
+  save_sync: true,
   systems_view: 'carousel',
   games_view: {} as Record<string, string>,
 }
@@ -49,6 +50,7 @@ function emit(event: string, payload: unknown) {
 
 // Device state: one game starts installed, downloads take a few seconds.
 const installed = new Set<number>([lib.roms[0]?.id])
+const conflicted = new Set<number>()
 const downloading = new Map<number, ReturnType<typeof setInterval>>()
 
 const handlers: Record<string, (a: any) => unknown> = {
@@ -82,10 +84,20 @@ const handlers: Record<string, (a: any) => unknown> = {
     emit('download', { stage: 'cancelled', rom_id: romId })
   },
   remove_rom: ({ romId }) => installed.delete(romId),
-  play_rom: ({ romId }) => {
+  play_rom: ({ romId, choice }) => {
+    // The first play of each game reports a save conflict, to preview the dialog.
+    if (!choice && !conflicted.has(romId)) {
+      conflicted.add(romId)
+      return {
+        state: 'conflict',
+        info: { local_modified: '2026-11-27T21:14:00Z', server_updated: '2026-11-26T19:28:01', server_device: 'dev' },
+      }
+    }
     emit('game', { stage: 'started', rom_id: romId })
-    setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000 }), 2500)
+    setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000, save: 'uploaded' }), 2500)
+    return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null }
   },
+  save_sync_status: () => 'Saves sync with RomM (retroarch-swanstation)',
   status: () => ({
     app_name: 'Romulus',
     version: 'dev',

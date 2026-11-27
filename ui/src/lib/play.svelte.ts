@@ -58,7 +58,9 @@ export function initDevice() {
       case 'ended': {
         device.playing = null
         const min = Math.round(e.duration_ms / 60000)
-        if (e.duration_ms >= 30000) toast(`Played for ${min < 1 ? 'under a minute' : `${min} min`}.`)
+        const played = e.duration_ms >= 30000 ? `Played for ${min < 1 ? 'under a minute' : `${min} min`}. ` : ''
+        const save = saveMessage(e.save, 'after')
+        if (played || save) toast(`${played}${save}`.trim(), e.save?.startsWith('failed') || e.save === 'conflict' ? 'error' : 'info', 6000)
         break
       }
       case 'failed':
@@ -82,6 +84,17 @@ export function removed(romId: number) {
   s.delete(romId)
   device.installed = s
   device.revision++
+}
+
+/** Text for a save sync result from the backend (null: nothing to say). */
+export function saveMessage(note: string | null, when: 'before' | 'after'): string {
+  if (!note) return ''
+  if (note === 'downloaded') return 'Your latest save was restored from RomM.'
+  if (note === 'uploaded') return when === 'after' ? 'Save uploaded to RomM.' : 'Your save was uploaded to RomM.'
+  if (note === 'offline') return "RomM couldn't be reached; your save will sync next time."
+  if (note === 'conflict')
+    return 'Another device saved this game while you played. Your save is kept; you choose which to use next time.'
+  return `Save sync problem: ${note.replace(/^failed: /, '')}`
 }
 
 export function progressText(p: { done: number; total: number }): string {

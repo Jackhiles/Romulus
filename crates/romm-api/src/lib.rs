@@ -10,11 +10,13 @@
 mod auth;
 mod error;
 mod files;
+mod saves;
 mod types;
 
 pub use auth::{Credentials, DEFAULT_SCOPES, DeviceAuthInit, DeviceInfo, DevicePoll};
 pub use error::{Error, Result};
 pub use files::{Download, PlaySession, RomFile, RomFiles};
+pub use saves::{SaveUpload, ServerSave};
 pub use types::*;
 
 use reqwest::{Method, RequestBuilder, StatusCode};
@@ -37,6 +39,9 @@ pub const USED_PATHS: &[&str] = &[
     "/api/roms/{id}/files/content/{file_name}",
     "/api/roms/{id}/props",
     "/api/play-sessions",
+    "/api/saves",
+    "/api/saves/{id}/content",
+    "/api/saves/{id}/downloaded",
 ];
 
 /// Called when the client gets new credentials (after a refresh), so they can be stored.

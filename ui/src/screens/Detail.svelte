@@ -2,11 +2,20 @@
   import { onDestroy } from 'svelte'
   import Backdrop from '../components/Backdrop.svelte'
   import Confirm from '../components/Confirm.svelte'
+  import SaveConflict from '../components/SaveConflict.svelte'
   import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
   import GameInfo from '../components/GameInfo.svelte'
-  import { api, assetUrl, games, type InstallStatus, type RomDetail } from '../lib/api'
-  import { device, progressText, removed, startDownload } from '../lib/play.svelte'
+  import {
+    api,
+    assetUrl,
+    games,
+    type InstallStatus,
+    type RomDetail,
+    type SaveChoice,
+    type SaveConflict as Conflict,
+  } from '../lib/api'
+  import { device, progressText, removed, saveMessage, startDownload } from '../lib/play.svelte'
   import { screenshots } from '../lib/details.svelte'
   import { hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
@@ -21,6 +30,21 @@
   let shot = $state(0)
   let status = $state<InstallStatus | null>(null)
   let confirmRemove = $state(false)
+  let conflict = $state<Conflict | null>(null)
+  let starting = $state(false)
+  let syncNote = $state<string | null>(null)
+
+  $effect(() => {
+    const want = id
+    syncNote = null
+    if (status?.state !== 'installed') return
+    games
+      .saveSyncStatus(want)
+      .then((n) => {
+        if (want === id) syncNote = n
+      })
+      .catch(() => {})
+  })
 
   // Re-check whenever an install changes (download finished, removed, ...).
   $effect(() => {
@@ -59,12 +83,31 @@
   function primary() {
     if (!rom || busy || !status) return
     if (status.state === 'installed') {
-      device.playingTitle = rom.title
-      games.play(id).catch((e) => toast(String(e), 'error', 6000))
+      play()
     } else if (status.state === 'not_installed') {
       startDownload(id)
     } else if (status.state === 'unavailable') {
       toast(status.reason, 'error', 5000)
+    }
+  }
+
+  /** Start the game. Saves sync first; a conflict asks before anything is launched. */
+  async function play(choice?: SaveChoice) {
+    if (!rom || starting) return
+    conflict = null
+    starting = true
+    device.playingTitle = rom.title
+    try {
+      const r = await games.play(id, choice)
+      if (r.state === 'conflict') conflict = r.info
+      else {
+        const m = saveMessage(r.save, 'before')
+        if (m) toast(m, r.save?.startsWith('failed') ? 'error' : 'info', 5000)
+      }
+    } catch (e) {
+      toast(String(e), 'error', 6000)
+    } finally {
+      starting = false
     }
   }
 
@@ -104,6 +147,7 @@
   const platform = $derived(typeof rom?.data?.platform_display_name === 'string' ? rom.data.platform_display_name : '')
   const primaryLabel = $derived.by(() => {
     if (busy) return 'Downloading…'
+    if (starting) return 'Syncing save…'
     switch (status?.state) {
       case 'installed':
         return '▶ Play'
@@ -151,7 +195,9 @@
               tabindex="-1"
               onclick={primary}>{primaryLabel}</button
             >
-            {#if status?.state === 'installed'}<span class="on-device">On this Deck</span>{/if}
+            {#if status?.state === 'installed'}
+              <span class="on-device">On this Deck{syncNote ? ` · ${syncNote}` : ''}</span>
+            {/if}
             {#if status?.state === 'unavailable'}<span class="reason">{status.reason}</span>{/if}
           {/if}
           {#if shots.length > 1}
@@ -165,6 +211,9 @@
   {/if}
 </div>
 <Footer {hints} />
+{#if conflict && rom}
+  <SaveConflict title={rom.title} info={conflict} onchoose={(c) => play(c)} oncancel={() => (conflict = null)} />
+{/if}
 {#if confirmRemove && rom}
   <Confirm
     title="Remove from this Deck?"

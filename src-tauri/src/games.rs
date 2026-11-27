@@ -228,15 +228,122 @@ pub async fn remove_rom(state: State<'_, AppState>, rom_id: i64) -> Res<()> {
 #[derive(Serialize, Clone)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 enum GameEvent {
-    Started { rom_id: i64 },
-    Ended { rom_id: i64, duration_ms: u64 },
-    Failed { rom_id: i64, message: String },
+    Started {
+        rom_id: i64,
+    },
+    /// `save` says what happened to the save afterwards (see [`save_note`]).
+    Ended {
+        rom_id: i64,
+        duration_ms: u64,
+        save: Option<String>,
+    },
+    Failed {
+        rom_id: i64,
+        message: String,
+    },
 }
 
-/// Start a downloaded game. Controller input to Romulus is paused until it exits.
-/// Events: `game` {stage: started | ended | failed}.
+/// What `play_rom` did.
+#[derive(Serialize)]
+#[serde(tag = "state", rename_all = "snake_case")]
+pub enum PlayStart {
+    /// The game is starting; `save` says what happened to its save first.
+    Started { save: Option<String> },
+    /// The Deck and RomM both have newer saves: ask, then call `play_rom` with a choice.
+    Conflict { info: sync::ConflictInfo },
+}
+
+/// Where this game's save lives, or why it can't be synced.
+fn save_location(
+    state: &AppState,
+    cache: &Mutex<Cache>,
+    inst: &Installed,
+) -> Result<sync::layout::Located, String> {
+    let rd = retrodeck(state).ok_or("RetroDECK was not found")?;
+    let rd_home = rd
+        .roms
+        .parent()
+        .ok_or("unexpected RetroDECK folder")?
+        .to_path_buf();
+    let system = inst
+        .system_dir
+        .file_name()
+        .ok_or("unexpected system folder")?
+        .to_string_lossy()
+        .into_owned();
+    let game_rel = inst
+        .launch
+        .strip_prefix(&inst.system_dir)
+        .map_err(|_| "unexpected game path")?
+        .to_string_lossy()
+        .replace('\\', "/");
+    let es = sync::emulator::EsDe::retrodeck(&home(), &rd_home);
+    let emu = sync::emulator::resolve(&es, &system, &game_rel)
+        .ok_or("RetroDECK has no emulator for this system")?;
+    let dirs = sync::layout::Dirs::retrodeck(
+        &home(),
+        rd.saves.clone().unwrap_or_else(|| rd_home.join("saves")),
+    );
+    let json = lock(cache)
+        .rom(inst.rom_id)
+        .ok()
+        .flatten()
+        .map(|(_, j)| j)
+        .unwrap_or_default();
+    sync::layout::locate(
+        &emu,
+        &inst.launch,
+        &dirs,
+        json["save_target"].as_str(),
+        json["save_target_layout"].as_str(),
+    )
+}
+
+fn load_record(cache: &Mutex<Cache>, rom_id: i64) -> Option<sync::Record> {
+    serde_json::from_str(&lock(cache).save_record(rom_id).ok()??).ok()
+}
+
+fn store_record(cache: &Mutex<Cache>, rom_id: i64, r: &sync::Record) {
+    match serde_json::to_string(r) {
+        Ok(j) => {
+            if let Err(e) = lock(cache).set_save_record(rom_id, &j) {
+                tracing::warn!("could not store save sync state: {e}");
+            }
+        }
+        Err(e) => tracing::warn!("could not store save sync state: {e}"),
+    }
+}
+
+/// Short message for the UI about a sync result.
+fn save_note(outcome: &sync::Result<sync::Outcome>) -> Option<String> {
+    match outcome {
+        Ok(sync::Outcome::Synced {
+            changed: Some("downloaded"),
+            ..
+        }) => Some("downloaded".into()),
+        Ok(sync::Outcome::Synced {
+            changed: Some("uploaded"),
+            ..
+        }) => Some("uploaded".into()),
+        Ok(sync::Outcome::Synced { .. }) => None,
+        Ok(sync::Outcome::Conflict(_)) => Some("conflict".into()),
+        Err(sync::Error::Api(e)) if matches!(e, romm_api::Error::Network(_)) => {
+            Some("offline".into())
+        }
+        Err(e) => Some(format!("failed: {e}")),
+    }
+}
+
+/// Start a downloaded game, syncing its save with RomM first and after it exits.
+/// Controller input to Romulus is paused while it runs. Events: `game`
+/// {stage: started | ended | failed}.
 #[tauri::command]
-pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -> Res<()> {
+pub async fn play_rom(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    rom_id: i64,
+    choice: Option<sync::Choice>,
+) -> Res<PlayStart> {
     let (client, cache) = session_parts(&state).await?;
     let inst = record(&cache, rom_id).ok_or("this game isn't on the device")?;
     if !inst.launch.is_file() {
@@ -245,6 +352,54 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
     if state.playing.swap(true, Ordering::SeqCst) {
         return Err("a game is already running".into());
     }
+
+    // Save sync before playing. Failures never stop the game from starting.
+    let device = client
+        .credentials()
+        .await
+        .and_then(|c| c.device_id().map(str::to_string));
+    let backups = state.paths.data_dir.join("backups");
+    let located = if lock(&state.config).save_sync {
+        match save_location(&state, &cache, &inst) {
+            Ok(l) => Some(l),
+            Err(why) => {
+                tracing::info!("no save sync for rom {rom_id}: {why}");
+                None
+            }
+        }
+    } else {
+        None
+    };
+    let mut note = None;
+    if let Some(game) = &located {
+        let ctx = sync::Ctx {
+            client: &client,
+            device_id: device.as_deref(),
+            backups: &backups,
+        };
+        let rec = load_record(&cache, rom_id);
+        let outcome = match tokio::time::timeout(
+            Duration::from_secs(60),
+            sync::before(&ctx, rom_id, game, rec.as_ref(), choice),
+        )
+        .await
+        {
+            Ok(o) => o,
+            Err(_) => Err(sync::Error::Api(romm_api::Error::Decode(
+                "timed out".into(),
+            ))),
+        };
+        match &outcome {
+            Ok(sync::Outcome::Conflict(info)) => {
+                state.playing.store(false, Ordering::SeqCst);
+                return Ok(PlayStart::Conflict { info: info.clone() });
+            }
+            Ok(sync::Outcome::Synced { record, .. }) => store_record(&cache, rom_id, record),
+            Err(e) => tracing::warn!("save sync before rom {rom_id} failed: {e}"),
+        }
+        note = save_note(&outcome);
+    }
+
     state.input_paused.store(true, Ordering::Relaxed);
     let _ = app.emit("game", GameEvent::Started { rom_id });
 
@@ -253,12 +408,12 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
         let st = app.state::<AppState>();
         let web_gamepad = lock(&st.config).web_gamepad;
         st.input_paused.store(web_gamepad, Ordering::Relaxed);
-        st.playing.store(false, Ordering::SeqCst);
         if let Some(w) = app.get_webview_window("main") {
             let _ = w.set_focus();
         }
         match result {
             Ok(s) if s.failed_to_start() => {
+                st.playing.store(false, Ordering::SeqCst);
                 tracing::warn!(
                     "rom {rom_id} exited at once with {:?}: {}",
                     s.exit_code,
@@ -279,6 +434,28 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
                 );
             }
             Ok(s) => {
+                // Save first: it matters more than the play time.
+                let mut save = None;
+                if let Some(game) = &located {
+                    let ctx = sync::Ctx {
+                        client: &client,
+                        device_id: device.as_deref(),
+                        backups: &backups,
+                    };
+                    let rec = load_record(&cache, rom_id);
+                    let outcome = sync::after(&ctx, rom_id, game, rec.as_ref()).await;
+                    match &outcome {
+                        Ok(sync::Outcome::Synced { record, .. }) => {
+                            store_record(&cache, rom_id, record)
+                        }
+                        Ok(sync::Outcome::Conflict(_)) => {
+                            tracing::warn!("save conflict for rom {rom_id}; will ask next time")
+                        }
+                        Err(e) => tracing::warn!("save sync after rom {rom_id} failed: {e}"),
+                    }
+                    save = save_note(&outcome);
+                }
+                st.playing.store(false, Ordering::SeqCst);
                 // Very short runs are failed starts, not play.
                 if s.duration_ms >= 30_000 {
                     let q = QueuedSession {
@@ -300,10 +477,12 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
                     GameEvent::Ended {
                         rom_id,
                         duration_ms: s.duration_ms,
+                        save,
                     },
                 );
             }
             Err(e) => {
+                st.playing.store(false, Ordering::SeqCst);
                 tracing::warn!("could not start rom {rom_id}: {e}");
                 let _ = app.emit(
                     "game",
@@ -315,7 +494,23 @@ pub async fn play_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -
             }
         }
     });
-    Ok(())
+    Ok(PlayStart::Started { save: note })
+}
+
+/// Whether and how this game's save syncs, for the detail page.
+#[tauri::command]
+pub async fn save_sync_status(state: State<'_, AppState>, rom_id: i64) -> Res<Option<String>> {
+    if !lock(&state.config).save_sync {
+        return Ok(Some("Save sync is off (Settings)".into()));
+    }
+    let (_, cache) = session_parts(&state).await?;
+    let Some(inst) = record(&cache, rom_id) else {
+        return Ok(None);
+    };
+    Ok(match save_location(&state, &cache, &inst) {
+        Ok(l) => Some(format!("Saves sync with RomM ({})", l.emulator)),
+        Err(why) => Some(format!("Saves don't sync: {why}")),
+    })
 }
 
 fn fmt(t: time::OffsetDateTime) -> String {

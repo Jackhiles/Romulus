@@ -375,3 +375,68 @@ async fn reads_rom_files_and_reports_play() {
     .unwrap();
     c.mark_played(1653).await.unwrap();
 }
+
+#[tokio::test]
+async fn saves_list_download_upload_and_conflict() {
+    let s = MockServer::start().await;
+    let save = json!({"id": 2, "rom_id": 1653, "file_name": "MGS [2026-10-25_17-11-46].srm",
+        "emulator": "retroarch-swanstation", "slot": "autosave", "content_hash": "3490c8fc",
+        "file_size_bytes": 131072, "updated_at": "2026-10-25T17:11:46", "origin_device_id": "dev-x"});
+    Mock::given(method("GET"))
+        .and(path("/api/saves"))
+        .and(query_param("rom_id", "1653"))
+        .and(query_param("device_id", "dev-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([save])))
+        .mount(&s)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/saves/2/content"))
+        .and(query_param("device_id", "dev-1"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"SRAM".to_vec()))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/saves/2/downloaded"))
+        .and(body_string_contains("\"content_hash\":\"abc\""))
+        .respond_with(ResponseTemplate::new(200).set_body_json(save.clone()))
+        .expect(1)
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/saves"))
+        .and(query_param("slot", "autosave"))
+        .and(query_param("overwrite", "false"))
+        .and(body_string_contains(
+            "name=\"saveFile\"; filename=\"MGS.srm\"",
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(save.clone()))
+        .up_to_n_times(1)
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/saves"))
+        .respond_with(
+            ResponseTemplate::new(409)
+                .set_body_json(json!({"detail": "Slot has a newer save since your last sync"})),
+        )
+        .mount(&s)
+        .await;
+
+    let c = client(&s).await;
+    let list = c.saves(1653, Some("dev-1")).await.unwrap();
+    assert_eq!(list[0].emulator.as_deref(), Some("retroarch-swanstation"));
+    assert_eq!(c.download_save(2, Some("dev-1")).await.unwrap(), b"SRAM");
+    c.confirm_save_download(2, "dev-1", "abc").await.unwrap();
+    let up = romm_api::SaveUpload {
+        rom_id: 1653,
+        emulator: "retroarch-swanstation",
+        slot: "autosave",
+        device_id: Some("dev-1"),
+        content_hash: "abc",
+        file_name: "MGS.srm",
+        bytes: b"SRAM2".to_vec(),
+        overwrite: false,
+    };
+    assert_eq!(c.upload_save(&up).await.unwrap().id, 2);
+    assert!(c.upload_save(&up).await.unwrap_err().is_conflict());
+}

@@ -105,6 +105,7 @@ pub fn run() {
             games::cancel_download,
             games::remove_rom,
             games::play_rom,
+            games::save_sync_status,
             commands::quit,
         ])
         .run(tauri::generate_context!())
