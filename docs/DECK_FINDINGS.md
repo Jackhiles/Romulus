@@ -82,3 +82,16 @@ treat them as saves to upload.
 folders, …). RomM has firmware for psx (17), ps2 (7), switch (5), xbox (3), gba (1). BIOS
 placement must check hashes against what is already there and never overwrite without a
 backup.
+
+## Launching and performance (0.3.1, 2026-11-27)
+
+- Host programs started from the AppImage must not inherit its environment:
+  `LD_LIBRARY_PATH` pointing at the bundled GLib made `flatpak` fail at once
+  ("symbol lookup error ... g_once_init_leave_pointer", exit 127). `launcher::env` strips
+  every path into an AppImage mount. With that, `flatpak run net.retrodeck.retrodeck
+  "<game>.m3u"` starts the game in Gaming Mode and returns when it is quit.
+- Play sessions reach RomM (`POST /api/play-sessions`, 201).
+- Frame times while scrolling: 18–29 fps with WebKitGTK's compatible renderer, about
+  60 fps (p95 under 26 ms) with the DMA-BUF renderer, which is now the default.
+- A copy started by the self-updater inherits the previous copy's environment, so
+  settings carried in environment variables must be set or cleared explicitly at start.
