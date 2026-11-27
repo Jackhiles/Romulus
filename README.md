@@ -5,7 +5,8 @@ Browse your self-hosted RomM library from a fullscreen "big picture" app that is
 Steam once, and (in later phases) download games on demand, launch them through RetroDECK,
 and keep saves, states and BIOS in sync.
 
-Status: **Phase 1 (browsing) is done.** Downloading and playing are Phase 2. See
+Status: **Phase 1 (browsing) is done; Phase 2 (download and play through RetroDECK) is
+built and awaiting testing on a Deck.** Save sync is Phase 3. See
 [docs/SPEC.md](docs/SPEC.md) for the plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for how it works.
 

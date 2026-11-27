@@ -183,9 +183,6 @@
     gap: 12px;
     font-size: 17px;
     color: var(--text-2);
-    transition:
-      background-color 90ms,
-      color 90ms;
   }
   .row .t {
     white-space: nowrap;

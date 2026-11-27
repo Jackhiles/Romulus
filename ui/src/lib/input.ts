@@ -4,6 +4,7 @@
 //  - the browser Gamepad API (fallback, behind a setting)
 //  - the keyboard (development, and Steam's keyboard-and-mouse layouts)
 import { listen } from '@tauri-apps/api/event'
+import { noteInput } from './perf'
 
 export type Action =
   | 'up' | 'down' | 'left' | 'right'
@@ -34,6 +35,7 @@ let lastInput = 0
 
 export function dispatch(e: PadEvent) {
   lastInput = performance.now()
+  noteInput()
   for (let i = handlers.length - 1; i >= 0; i--) {
     if (handlers[i](e) === true) return
   }

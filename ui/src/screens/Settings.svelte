@@ -130,6 +130,20 @@
         },
       },
       {
+        label: 'Renderer',
+        value: s.fast_renderer ? 'Fast (restart to apply)' : 'Compatible',
+        cycle: async () => {
+          await patch({ fast_renderer: !s.fast_renderer })
+          toast(
+            s.fast_renderer
+              ? 'Compatible renderer after a restart.'
+              : 'Fast renderer after a restart. If the window stays blank, add ROMULUS_RENDERER=compatible %command% to the Steam launch options.',
+            'info',
+            8000,
+          )
+        },
+      },
+      {
         label: 'Controller input',
         value: s.web_gamepad ? 'Browser Gamepad API (fallback)' : 'Native (recommended)',
         cycle: () => patch({ web_gamepad: !s.web_gamepad }),

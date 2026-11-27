@@ -135,6 +135,9 @@ thumbnail size, so nothing is resized.
 
 ## Launcher (Phase 2)
 
+Built in `crates/launcher` (see its module docs); still to be checked on a real Deck.
+
+
 - RetroDECK detection: read `paths` from
   `~/.var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.json` (`roms_path`,
   `bios_path`, `saves_path`, `states_path`; checked on a Deck, see `docs/DECK_FINDINGS.md`).

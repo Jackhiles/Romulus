@@ -26,7 +26,8 @@ export class FocusedDetail {
   #timer: ReturnType<typeof setTimeout> | undefined
   #delay: number
 
-  constructor(delay = 110) {
+  // Long enough that holding a direction doesn't load (and crossfade) every game passed.
+  constructor(delay = 200) {
     this.#delay = delay
   }
 

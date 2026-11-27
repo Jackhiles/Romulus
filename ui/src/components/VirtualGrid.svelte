@@ -3,6 +3,7 @@
   // view follows the focused index with an eased scroll. Navigation itself is done by
   // the screen (see lib/grid.ts); this component reports `cols` and `rows` so it can.
   import { untrack, type Snippet } from 'svelte'
+  import { follow } from '../lib/ease'
   import { scrollFor } from '../lib/grid'
 
   interface Props {
@@ -57,17 +58,13 @@
 
   function animate() {
     if (raf) return
-    const tickFn = () => {
-      const d = target - offset
-      if (Math.abs(d) < 0.5) {
-        offset = target
-        raf = 0
-        return
-      }
-      offset += d * 0.28
-      raf = requestAnimationFrame(tickFn)
+    let last = performance.now()
+    const tick = (now: number) => {
+      offset = follow(offset, target, now - last)
+      last = now
+      raf = offset === target ? 0 : requestAnimationFrame(tick)
     }
-    raf = requestAnimationFrame(tickFn)
+    raf = requestAnimationFrame(tick)
   }
 
   const first = $derived(Math.max(0, Math.floor(offset / rowH) - 1))

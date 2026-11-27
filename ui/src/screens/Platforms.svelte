@@ -272,7 +272,7 @@
     gap: 6px;
     background: linear-gradient(155deg, hsl(var(--hue) 38% 24%), hsl(var(--hue) 30% 11%));
     border: 1px solid rgb(255 255 255 / 0.08);
-    box-shadow: 0 18px 50px rgb(0 0 0 / 0.5);
+    box-shadow: 0 12px 30px rgb(0 0 0 / 0.45);
     transition:
       transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
       opacity 240ms;
@@ -326,7 +326,6 @@
     border-radius: 8px;
     font-size: 17px;
     color: var(--text-2);
-    transition: background-color 90ms;
   }
   .row span:first-child {
     white-space: nowrap;
@@ -386,9 +385,20 @@
     position: relative;
     background: linear-gradient(150deg, hsl(var(--hue) 35% 22%), hsl(var(--hue) 28% 12%));
     border: 1px solid rgb(255 255 255 / 0.06);
-    transition:
-      transform 120ms ease-out,
-      box-shadow 120ms ease-out;
+    transition: transform 110ms ease-out;
+  }
+  .tile::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: inherit;
+    box-shadow: 0 0 0 3px var(--accent);
+    opacity: 0;
+    transition: opacity 110ms ease-out;
+    pointer-events: none;
+  }
+  .tile.focused::after {
+    opacity: 1;
   }
   .tile .abbr {
     position: absolute;
@@ -397,8 +407,5 @@
   }
   .tile.focused {
     transform: scale(1.05);
-    box-shadow:
-      0 0 0 3px var(--accent),
-      0 10px 28px rgb(0 0 0 / 0.55);
   }
 </style>

@@ -2,6 +2,7 @@
   // Virtualized vertical list. The focused row glides toward the middle of the view,
   // so there is always context above and below it. Only rows in view are in the DOM.
   import { untrack, type Snippet } from 'svelte'
+  import { follow } from '../lib/ease'
 
   interface Props {
     items: T[]
@@ -37,15 +38,11 @@
 
   function animate() {
     if (raf) return
-    const tick = () => {
-      const d = target - offset
-      if (Math.abs(d) < 0.5) {
-        offset = target
-        raf = 0
-        return
-      }
-      offset += d * 0.3
-      raf = requestAnimationFrame(tick)
+    let last = performance.now()
+    const tick = (now: number) => {
+      offset = follow(offset, target, now - last)
+      last = now
+      raf = offset === target ? 0 : requestAnimationFrame(tick)
     }
     raf = requestAnimationFrame(tick)
   }
@@ -89,8 +86,6 @@
     position: relative;
     overflow: hidden;
     height: 100%;
-    /* Fade rows out at the edges instead of cutting them. */
-    mask-image: linear-gradient(to bottom, transparent 0, #000 28px, #000 calc(100% - 28px), transparent 100%);
   }
   .inner {
     position: absolute;

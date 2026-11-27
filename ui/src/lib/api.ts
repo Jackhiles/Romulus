@@ -64,6 +64,7 @@ export interface Settings {
   fullscreen: boolean
   cover_cache_mb: number
   web_gamepad: boolean
+  fast_renderer: boolean
   systems_view: SystemsView
   games_view: Record<string, GamesView>
 }

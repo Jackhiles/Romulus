@@ -23,11 +23,18 @@ pub fn run() {
     // Remove what the last self-update left behind.
     updater::cleanup();
 
-    // WebKitGTK's DMA-BUF renderer misbehaves on some GPU/driver combinations; the user
-    // can opt back in by setting the variable themselves.
-    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none()
-        && std::env::var_os("ROMULUS_DMABUF").is_none()
-    {
+    // WebKitGTK's DMA-BUF renderer is much faster (frames stay on the GPU) but shows a
+    // blank window on some GPU/driver combinations, so it is opt-in: Settings → Renderer,
+    // or ROMULUS_DMABUF=1. ROMULUS_RENDERER=compatible always forces the safe path, as a
+    // way back if the fast one shows nothing.
+    let forced_compat = std::env::var("ROMULUS_RENDERER").is_ok_and(|v| v == "compatible");
+    let fast =
+        !forced_compat && (config.fast_renderer || std::env::var_os("ROMULUS_DMABUF").is_some());
+    tracing::info!(
+        "renderer: {}",
+        if fast { "fast (DMA-BUF)" } else { "compatible" }
+    );
+    if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() && !fast {
         // SAFETY: called before any other thread is started.
         unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
     }

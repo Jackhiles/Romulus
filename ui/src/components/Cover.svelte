@@ -54,13 +54,27 @@
     border-radius: var(--radius);
     overflow: hidden;
     background: var(--surface);
-    transition: transform 120ms ease-out, box-shadow 120ms ease-out;
+    /* Only transform and opacity change on focus: they are composited, while an
+       animated shadow repaints every frame (slow in WebKitGTK). */
+    transition: transform 110ms ease-out;
     box-shadow: 0 2px 8px rgb(0 0 0 / 0.35);
+  }
+  .cover::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    box-shadow: inset 0 0 0 3px var(--accent);
+    opacity: 0;
+    transition: opacity 110ms ease-out;
+    pointer-events: none;
   }
   .focused {
     transform: scale(1.07);
-    box-shadow: 0 0 0 3px var(--accent), 0 10px 28px rgb(0 0 0 / 0.55);
     z-index: 1;
+  }
+  .focused::after {
+    opacity: 1;
   }
   .placeholder {
     position: absolute;

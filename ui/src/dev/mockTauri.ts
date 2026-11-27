@@ -30,6 +30,7 @@ const settings = {
   fullscreen: false,
   cover_cache_mb: 1024,
   web_gamepad: false,
+  fast_renderer: false,
   systems_view: 'carousel',
   games_view: {} as Record<string, string>,
 }

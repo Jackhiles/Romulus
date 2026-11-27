@@ -29,15 +29,16 @@ each, and use Settings → Copy debug info for anything that fails.
 
 ## Rendering
 
-Romulus sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` by default, because it avoids blank windows
-with AppImages on some systems. It may cost performance on the Deck's AMD GPU. To compare,
-start once from Konsole with the faster renderer:
+Romulus uses WebKitGTK's compatible renderer by default (`WEBKIT_DISABLE_DMABUF_RENDERER=1`),
+which avoids blank windows with AppImages on some systems but copies every frame through
+the CPU. Settings → Renderer → Fast switches to the DMA-BUF renderer after a restart. If the
+window stays blank, add `ROMULUS_RENDERER=compatible %command%` to Romulus' launch options
+in Steam to get back.
 
-```sh
-ROMULUS_DMABUF=1 ~/Applications/Romulus-x86_64.AppImage
-```
+While you move around, Romulus logs frame times (`ui: frames: …` lines in the log), so
+each renderer can be compared with numbers.
 
-- [ ] Note whether scrolling feels better or worse, and whether the window is blank.
+- [ ] Fast renderer: window shows, and scrolling is smoother than with Compatible.
 
 ## RetroDECK
 

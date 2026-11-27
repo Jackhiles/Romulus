@@ -37,6 +37,7 @@ tauri-plugin-clipboard-manager = "2"
 keyring = { version = "3", features = ["sync-secret-service", "crypto-rust", "vendored"] }
 rand = "0.9"
 crc32fast = "1"
+libc = "0.2"
 
 [dev-dependencies]
 tempfile.workspace = true

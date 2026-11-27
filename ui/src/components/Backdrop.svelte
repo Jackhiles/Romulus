@@ -23,7 +23,7 @@
 <div class="backdrop" style:--strength={strength}>
   {#each layers as l (l.key)}
     <div class="layer" style:--hue={l.hue}>
-      {#if l.src}<div class="img" style:background-image={`url("${l.src}")`}></div>{/if}
+      {#if l.src}<img class="img" src={l.src} alt="" decoding="async" />{/if}
     </div>
   {/each}
   <div class="shade"></div>
@@ -44,17 +44,21 @@
     background: radial-gradient(ellipse 90% 70% at 75% 0%, hsl(var(--hue) 50% 18%), transparent 70%),
       radial-gradient(ellipse 70% 60% at 0% 100%, hsl(var(--hue) 40% 10%), transparent 70%), var(--bg);
     animation: fade 280ms ease-out;
+    /* Own compositing layer: the list scrolling on top never repaints it. */
+    will-change: opacity;
   }
   .img {
     position: absolute;
     inset: 0;
-    background-size: cover;
-    background-position: center;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
     opacity: var(--strength);
   }
   .shade {
     position: absolute;
     inset: 0;
+    will-change: transform;
     background:
       linear-gradient(to right, rgb(11 13 18 / 0.92) 0%, rgb(11 13 18 / 0.6) 45%, rgb(11 13 18 / 0.25) 100%),
       linear-gradient(to top, rgb(11 13 18 / 0.95) 0%, transparent 35%);

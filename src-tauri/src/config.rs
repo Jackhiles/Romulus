@@ -20,6 +20,8 @@ pub struct Config {
     pub fullscreen: bool,
     /// Max size of the cover cache in MB.
     pub cover_cache_mb: u64,
+    /// Use WebKitGTK's DMA-BUF renderer (faster; blank window on some GPUs).
+    pub fast_renderer: bool,
     /// Use the browser Gamepad API instead of reading the controller natively.
     pub web_gamepad: bool,
     /// Version that last ran, for "what's new" after an update.
@@ -42,6 +44,7 @@ impl Default for Config {
             check_updates: true,
             fullscreen: true,
             cover_cache_mb: 1024,
+            fast_renderer: false,
             web_gamepad: false,
             last_run_version: None,
             retrodeck_roms: None,

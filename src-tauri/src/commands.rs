@@ -369,6 +369,21 @@ pub fn restart_app(app: AppHandle) -> Res<()> {
     for v in ["APPIMAGE", "APPDIR", "OWD", "ARGV0"] {
         cmd.env_remove(v);
     }
+    // Don't hand our open files to the new copy. The AppImage runtime passes its FUSE
+    // connection down without close-on-exec; if the new copy inherits it, the old
+    // AppImage's mount (and runtime process) stays alive until Steam closes everything.
+    #[cfg(unix)]
+    {
+        use std::os::unix::process::CommandExt;
+        // SAFETY: close_range is async-signal-safe and only touches the child's table.
+        unsafe {
+            cmd.pre_exec(|| {
+                libc::close_range(3, libc::c_uint::MAX, 0);
+                Ok(())
+            });
+        }
+    }
+    cmd.current_dir(dirs::home_dir().unwrap_or_else(|| "/".into()));
     cmd.spawn()
         .map_err(|e| format!("could not start the new version: {e}"))?;
     app.exit(0);
@@ -408,6 +423,7 @@ pub struct SettingsPatch {
     log_level: Option<String>,
     web_gamepad: Option<bool>,
     systems_view: Option<String>,
+    fast_renderer: Option<bool>,
 }
 
 #[tauri::command]
@@ -436,6 +452,9 @@ pub fn update_settings(
         if let Some(v) = patch.web_gamepad {
             cfg.web_gamepad = v;
             state.input_paused.store(v, Ordering::Relaxed);
+        }
+        if let Some(v) = patch.fast_renderer {
+            cfg.fast_renderer = v;
         }
         if let Some(v) = patch.systems_view {
             if !["carousel", "list", "grid"].contains(&v.as_str()) {
