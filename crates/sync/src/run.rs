@@ -68,7 +68,7 @@ fn rfc3339(t: std::time::SystemTime) -> Option<String> {
 }
 
 /// The newest save on RomM in our slot with a compatible format.
-pub fn pick(saves: &[ServerSave], ext: &str) -> Option<ServerSave> {
+pub fn pick(saves: &[ServerSave], exts: &[&str]) -> Option<ServerSave> {
     saves
         .iter()
         .filter(|s| s.slot.as_deref() == Some(SLOT))
@@ -76,7 +76,7 @@ pub fn pick(saves: &[ServerSave], ext: &str) -> Option<ServerSave> {
             s.file_name
                 .rsplit('.')
                 .next()
-                .is_some_and(|e| e.eq_ignore_ascii_case(ext))
+                .is_some_and(|e| exts.iter().any(|x| e.eq_ignore_ascii_case(x)))
         })
         .max_by(|a, b| a.updated_at.cmp(&b.updated_at).then(a.id.cmp(&b.id)))
         .cloned()
@@ -185,7 +185,7 @@ pub async fn before(
         )?;
     }
     let saves = ctx.client.saves(rom_id, ctx.device_id).await?;
-    let server = pick(&saves, game.ext);
+    let server = pick(&saves, game.exts);
     let local = local::read(&game.spec)?;
     let srv = server.as_ref().map(|s| engine::Server {
         id: s.id,
@@ -268,7 +268,7 @@ pub async fn after(
         });
     }
     let saves = ctx.client.saves(rom_id, ctx.device_id).await?;
-    let server = pick(&saves, game.ext);
+    let server = pick(&saves, game.exts);
     let srv = server.as_ref().map(|s| engine::Server {
         id: s.id,
         hash: s.content_hash.clone(),
@@ -322,8 +322,13 @@ mod tests {
             save(6, "MGS [c].srm", "manual", "2026-11-26T00:00:00"),
             save(7, "autosave [d].zip", "autosave", "2026-11-27T00:00:00"),
         ];
-        assert_eq!(pick(&saves, "srm").unwrap().id, 5);
-        assert_eq!(pick(&saves, "zip").unwrap().id, 7);
-        assert_eq!(pick(&[], "srm"), None);
+        assert_eq!(pick(&saves, &["srm"]).unwrap().id, 5);
+        assert_eq!(pick(&saves, &["zip"]).unwrap().id, 7);
+        assert_eq!(pick(&[], &["srm"]), None);
+        // PS1 cards: a newer DuckStation card counts for SwanStation and back.
+        let mut ps1 = saves.clone();
+        ps1.push(save(8, "MGS_1 [e].mcd", "autosave", "2026-11-21T00:00:00"));
+        assert_eq!(pick(&ps1, &["srm", "mcd"]).unwrap().id, 8);
+        assert_eq!(pick(&ps1, &["srm"]).unwrap().id, 5);
     }
 }

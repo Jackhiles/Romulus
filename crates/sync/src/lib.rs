@@ -5,14 +5,18 @@
 //! - [`layout`]: where that emulator keeps the game's save.
 //! - [`local`]: reading, packing, backing up and applying the save on the device.
 //! - [`run`]: syncing before and after a play session.
+//! - [`duckstation`]: which memory card file DuckStation uses for a game.
+//! - [`states`]: save state files, synced one by one.
 //!
 //! Saves on the device are never overwritten or removed without a backup first.
 
+pub mod duckstation;
 pub mod emulator;
 pub mod engine;
 pub mod layout;
 pub mod local;
 pub mod run;
+pub mod states;
 
 pub use engine::Record;
 pub use run::{Choice, ConflictInfo, Ctx, Outcome, after, before, changed_locally};

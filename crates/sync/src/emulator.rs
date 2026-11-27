@@ -13,6 +13,7 @@ pub enum Emulator {
     },
     Pcsx2,
     Ppsspp,
+    DuckStation,
     /// Anything else, by its ES-DE label (e.g. "DuckStation (Standalone)").
     Other {
         label: String,
@@ -26,6 +27,7 @@ impl Emulator {
             Emulator::RetroArch { core } => format!("retroarch-{core}"),
             Emulator::Pcsx2 => "pcsx2".into(),
             Emulator::Ppsspp => "ppsspp".into(),
+            Emulator::DuckStation => "duckstation".into(),
             Emulator::Other { label } => label
                 .to_lowercase()
                 .split(|c: char| !c.is_ascii_alphanumeric())
@@ -40,6 +42,7 @@ impl Emulator {
             Emulator::RetroArch { core } => format!("RetroArch ({core})"),
             Emulator::Pcsx2 => "PCSX2".into(),
             Emulator::Ppsspp => "PPSSPP".into(),
+            Emulator::DuckStation => "DuckStation".into(),
             Emulator::Other { label } => label.clone(),
         }
     }
@@ -60,6 +63,9 @@ impl Emulator {
         }
         if command.contains("%EMULATOR_PPSSPP%") {
             return Emulator::Ppsspp;
+        }
+        if command.contains("%EMULATOR_DUCKSTATION%") {
+            return Emulator::DuckStation;
         }
         Emulator::Other {
             label: label.to_string(),
@@ -252,12 +258,12 @@ mod tests {
             "Metal Gear Solid (USA) (Rev 1)/Metal Gear Solid (USA) (Rev 1).m3u",
         )
         .unwrap();
-        assert_eq!(
-            mgs,
-            Emulator::Other {
-                label: "DuckStation (Standalone)".into()
-            }
-        );
+        assert_eq!(mgs, Emulator::DuckStation);
         assert_eq!(mgs.romm_name(), "duckstation");
+        // Unknown emulators keep their ES-DE label.
+        let other = Emulator::Other {
+            label: "Mednafen (Standalone)".into(),
+        };
+        assert_eq!(other.romm_name(), "mednafen");
     }
 }

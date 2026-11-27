@@ -1,5 +1,6 @@
 //! Syncing around a play session against a mock RomM.
 
+use md5::Digest;
 use romm_api::{Client, Credentials, normalize_server_url};
 use serde_json::json;
 use sync::layout::Located;
@@ -39,7 +40,7 @@ fn game(dir: &std::path::Path) -> Located {
         },
         emulator: "retroarch-swanstation".into(),
         upload_name: "Game.srm".into(),
-        ext: "srm",
+        exts: &["srm"],
         warning: None,
         pcsx2_card: false,
     }
@@ -216,4 +217,133 @@ async fn keep_local_backs_up_romms_copy_then_overwrites() {
     let b = backups(d.path());
     assert_eq!(b.len(), 1);
     assert_eq!(std::fs::read(&b[0]).unwrap(), b"OTHER");
+}
+
+fn state(id: i64, name: &str, emulator: &str, at: &str) -> serde_json::Value {
+    json!({"id": id, "rom_id": 7, "file_name": name, "emulator": emulator,
+           "file_size_bytes": 1, "updated_at": at})
+}
+
+#[tokio::test]
+async fn states_sync_by_file_and_ignore_other_emulators() {
+    use std::collections::HashMap;
+    use sync::states::{Pattern, StateSet, sync as sync_states};
+
+    let s = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/api/states"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            // From another device running the same emulator: newer than the Deck's.
+            state(
+                1,
+                "Game [2026-11-27 10-00-00-000].state1",
+                "retroarch-swanstation",
+                "2026-11-27T10:00:00"
+            ),
+            // RomM's web player (another emulator): never used.
+            state(
+                2,
+                "Game [2026-11-27 11-00-00-000].state2",
+                "pcsx_rearmed",
+                "2026-11-27T11:00:00"
+            ),
+        ])))
+        .mount(&s)
+        .await;
+    Mock::given(path("/api/states/1/content"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"REMOTE1".to_vec()))
+        .mount(&s)
+        .await;
+    Mock::given(path("/api/states/2/content"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"WEB".to_vec()))
+        .expect(0)
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/states"))
+        .and(query_param("emulator", "retroarch-swanstation"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(state(
+            3,
+            "Game [2026-11-27 12-00-00-000].state",
+            "retroarch-swanstation",
+            "2026-11-27T12:00:00",
+        )))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let c = client(&s).await;
+    let d = tempfile::tempdir().unwrap();
+    let dir = d.path().join("states/psx");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("Game.state"), b"NEW").unwrap(); // only on the Deck
+    std::fs::write(dir.join("Game.state1"), b"OLD1").unwrap(); // synced, then replaced elsewhere
+    std::fs::write(dir.join("Game.state.png"), b"thumb").unwrap(); // not a state
+    let set = StateSet {
+        dir: dir.clone(),
+        pattern: Pattern::RetroArch {
+            stem: "Game".into(),
+        },
+        emulator: "retroarch-swanstation".into(),
+    };
+    let mut records = HashMap::new();
+    records.insert(
+        "Game.state1".to_string(),
+        sync::states::StateRecord {
+            local: Some(format!("{:x}", md5::Md5::digest(b"OLD1"))),
+            server: Some("0@2026-11-01T00:00:00".into()),
+            synced_at: None,
+        },
+    );
+    let ctx = Ctx {
+        client: &c,
+        device_id: None,
+        backups: &d.path().join("backups"),
+    };
+    // After playing: only the Deck's change goes up; RomM's newer state1 waits.
+    let after = sync_states(&ctx, 7, &set, &records, false).await.unwrap();
+    assert_eq!((after.uploaded, after.downloaded), (1, 0));
+    assert_eq!(std::fs::read(dir.join("Game.state1")).unwrap(), b"OLD1");
+    for (n, r) in after.records {
+        records.insert(n, r);
+    }
+    s.verify().await;
+
+    // Before playing: state1 comes down, after a backup of the Deck's copy. RomM now
+    // also lists the state just uploaded.
+    s.reset().await;
+    Mock::given(method("GET"))
+        .and(path("/api/states"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+            state(
+                1,
+                "Game [2026-11-27 10-00-00-000].state1",
+                "retroarch-swanstation",
+                "2026-11-27T10:00:00"
+            ),
+            state(
+                3,
+                "Game [2026-11-27 12-00-00-000].state",
+                "retroarch-swanstation",
+                "2026-11-27T12:00:00"
+            ),
+        ])))
+        .mount(&s)
+        .await;
+    Mock::given(path("/api/states/1/content"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"REMOTE1".to_vec()))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/states"))
+        .respond_with(ResponseTemplate::new(500))
+        .expect(0)
+        .mount(&s)
+        .await;
+    let before = sync_states(&ctx, 7, &set, &records, true).await.unwrap();
+    assert_eq!((before.uploaded, before.downloaded), (0, 1));
+    assert_eq!(std::fs::read(dir.join("Game.state1")).unwrap(), b"REMOTE1");
+    assert!(!dir.join("Game.state2").exists());
+    let b = backups(d.path());
+    assert_eq!(b.len(), 1);
+    assert_eq!(std::fs::read(&b[0]).unwrap(), b"OLD1");
 }

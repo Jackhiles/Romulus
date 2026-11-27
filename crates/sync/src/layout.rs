@@ -14,6 +14,10 @@ pub struct Dirs {
     pub pcsx2_ini: PathBuf,
     /// PPSSPP's memory stick (holds `PSP/SAVEDATA`).
     pub ppsspp_memstick: PathBuf,
+    /// DuckStation's user folder (`settings.ini`, `savestates`).
+    pub duckstation: PathBuf,
+    /// DuckStation's game database (`gamedb.yaml`), for its memory card names.
+    pub duckstation_gamedb: PathBuf,
 }
 
 impl Dirs {
@@ -25,7 +29,23 @@ impl Dirs {
             pcsx2_ini: cfg.join("PCSX2/inis/PCSX2.ini"),
             // RetroDECK links PSP/SAVEDATA here to saves/PSP/PPSSPP-SA.
             ppsspp_memstick: cfg.join("ppsspp"),
+            duckstation: cfg.join("duckstation"),
+            duckstation_gamedb: flatpak_file(
+                home,
+                "retrodeck/components/duckstation/bin/resources/gamedb.yaml",
+            ),
         }
+    }
+}
+
+/// A file inside RetroDECK's flatpak: the user installation, else the system one.
+pub fn flatpak_file(home: &Path, rel: &str) -> PathBuf {
+    let app = "net.retrodeck.retrodeck/current/active/files";
+    let user = home.join(".local/share/flatpak/app").join(app).join(rel);
+    if user.is_file() {
+        user
+    } else {
+        Path::new("/var/lib/flatpak/app").join(app).join(rel)
     }
 }
 
@@ -37,8 +57,8 @@ pub struct Located {
     pub emulator: String,
     /// File name for uploads (RomM adds a timestamp tag).
     pub upload_name: String,
-    /// Extension of compatible saves on RomM (`srm`, `zip`).
-    pub ext: &'static str,
+    /// Extensions of compatible saves on RomM (`srm`, `zip`).
+    pub exts: &'static [&'static str],
     /// Something the player should know before playing (e.g. an unformatted card).
     pub warning: Option<String>,
     /// The folders are on a PCSX2 folder memory card (which may need formatting).
@@ -123,8 +143,18 @@ const NON_SRM_CORES: &[&str] = &[
     "ppsspp", "pcsx2", "lrps2", "pcee2", "dolphin", "flycast", "play",
 ];
 
+/// PS1 emulators whose save is the raw 128 KB memory card image, so their saves can
+/// be swapped: SwanStation, Beetle PSX and PCSX ReARMed (`.srm`), DuckStation (`.mcd`).
+const PSX_CARD_CORES: &[&str] = &[
+    "swanstation",
+    "mednafen_psx",
+    "mednafen_psx_hw",
+    "pcsx_rearmed",
+];
+const PSX_CARD: &[&str] = &["srm", "mcd"];
+
 /// `key = "value"` lines (retroarch.cfg).
-fn cfg_value(text: &str, key: &str) -> Option<String> {
+pub(crate) fn cfg_value(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|l| {
         let (k, v) = l.split_once('=')?;
         (k.trim() == key).then(|| v.trim().trim_matches('"').to_string())
@@ -132,7 +162,7 @@ fn cfg_value(text: &str, key: &str) -> Option<String> {
 }
 
 /// `key = value` in an ini `[section]`.
-fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
+pub(crate) fn ini_value(text: &str, section: &str, key: &str) -> Option<String> {
     let mut inside = false;
     for l in text.lines() {
         let l = l.trim();
@@ -175,12 +205,37 @@ pub fn locate(
                 },
                 emulator: emu.romm_name(),
                 upload_name: "autosave.zip".into(),
-                ext: "zip",
+                exts: &["zip"],
                 warning: None,
                 pcsx2_card: false,
             })
         }
-        Emulator::RetroArch { .. } => {
+        Emulator::DuckStation => {
+            let ini =
+                std::fs::read_to_string(dirs.duckstation.join("settings.ini")).unwrap_or_default();
+            let s = crate::duckstation::card_settings(
+                &ini,
+                &dirs.saves.join("psx/duckstation/memcards"),
+            );
+            let serial = match (save_target, layout) {
+                (Some(t), Some("file-prefix")) if !t.is_empty() => Some(t),
+                _ => None,
+            };
+            let path = crate::duckstation::card_path(&s, &dirs.duckstation_gamedb, launch, serial)?;
+            let upload_name = path
+                .file_name()
+                .map(|f| f.to_string_lossy().into_owned())
+                .ok_or("bad memory card name")?;
+            Ok(Located {
+                spec: SaveSpec::File { path },
+                emulator: emu.romm_name(),
+                upload_name,
+                exts: PSX_CARD,
+                warning: None,
+                pcsx2_card: false,
+            })
+        }
+        Emulator::RetroArch { core } => {
             let cfg = std::fs::read_to_string(&dirs.retroarch_cfg).unwrap_or_default();
             if cfg_value(&cfg, "sort_savefiles_enable").as_deref() == Some("true") {
                 return Err(
@@ -209,7 +264,11 @@ pub fn locate(
                 },
                 emulator: emu.romm_name(),
                 upload_name: format!("{stem}.srm"),
-                ext: "srm",
+                exts: if PSX_CARD_CORES.contains(&core.as_str()) {
+                    PSX_CARD
+                } else {
+                    &["srm"]
+                },
                 warning: None,
                 pcsx2_card: false,
             })
@@ -245,7 +304,7 @@ pub fn locate(
                 },
                 emulator: emu.romm_name(),
                 upload_name: "autosave.zip".into(),
-                ext: "zip",
+                exts: &["zip"],
                 warning,
                 pcsx2_card: true,
             })
@@ -266,7 +325,55 @@ mod tests {
             retroarch_cfg: d.join("retroarch.cfg"),
             pcsx2_ini: d.join("PCSX2.ini"),
             ppsspp_memstick: d.join("ppsspp"),
+            duckstation: d.join("duckstation"),
+            duckstation_gamedb: d.join("gamedb.yaml"),
         }
+    }
+
+    #[test]
+    fn duckstation_uses_its_per_title_card_and_takes_swanstation_saves() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        std::fs::write(
+            d.path().join("gamedb.yaml"),
+            "SLUS-00553:\n  name: \"Alundra (USA)\"\n",
+        )
+        .unwrap();
+        std::fs::create_dir_all(d.path().join("duckstation")).unwrap();
+        std::fs::write(
+            d.path().join("duckstation/settings.ini"),
+            "[MemoryCards]\nCard1Type = PerGameTitle\n",
+        )
+        .unwrap();
+        let game = Path::new("/sd/retrodeck/roms/psx/Alundra (USA) (Rev 1).m3u");
+        let l = locate(
+            &Emulator::DuckStation,
+            game,
+            &ds,
+            Some("SLUS-00553"),
+            Some("file-prefix"),
+        )
+        .unwrap();
+        assert_eq!(
+            l.spec,
+            SaveSpec::File {
+                path: d
+                    .path()
+                    .join("saves/psx/duckstation/memcards/Alundra (USA)_1.mcd")
+            }
+        );
+        assert_eq!(
+            (l.emulator.as_str(), l.upload_name.as_str(), l.exts),
+            ("duckstation", "Alundra (USA)_1.mcd", PSX_CARD)
+        );
+        let swan = Emulator::RetroArch {
+            core: "swanstation".into(),
+        };
+        assert_eq!(locate(&swan, game, &ds, None, None).unwrap().exts, PSX_CARD);
+        let snes = Emulator::RetroArch {
+            core: "snes9x".into(),
+        };
+        assert_eq!(locate(&snes, game, &ds, None, None).unwrap().exts, ["srm"]);
     }
 
     #[test]
@@ -290,8 +397,8 @@ mod tests {
             }
         );
         assert_eq!(
-            (l.emulator.as_str(), l.ext, l.pcsx2_card),
-            ("ppsspp", "zip", false)
+            (l.emulator.as_str(), l.exts, l.pcsx2_card),
+            ("ppsspp", &["zip"][..], false)
         );
         assert!(locate(&Emulator::Ppsspp, game, &ds, None, None).is_err());
         // RetroArch's PPSSPP core doesn't use .srm files.
@@ -393,7 +500,7 @@ mod tests {
                 prefix: "BASLUS-21008".into()
             }
         );
-        assert_eq!((l.emulator.as_str(), l.ext), ("pcsx2", "zip"));
+        assert_eq!((l.emulator.as_str(), l.exts), ("pcsx2", &["zip"][..]));
         // A new card (empty superblock, as PCSX2 creates it) gets formatted, with a
         // backup of the empty file; no warning.
         let cardd = d.path().join("saves/ps2/pcsx2/memcards/Memcard.ps2");
