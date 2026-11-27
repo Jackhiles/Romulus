@@ -73,6 +73,8 @@ fn run(rx: Receiver<Cmd>, mut volume: f32) {
     let mut fading_in: Option<Instant> = None;
 
     let fade_out = |s: &rodio::Player| {
+        // rodio's Float is f32 or f64 depending on its features.
+        #[allow(clippy::unnecessary_cast)]
         let from = s.volume() as f32;
         let start = Instant::now();
         while start.elapsed() < FADE_OUT {
@@ -109,7 +111,7 @@ fn run(rx: Receiver<Cmd>, mut volume: f32) {
                 };
                 match rodio::Decoder::new_looped(std::io::BufReader::new(file)) {
                     Ok(src) => {
-                        let s = rodio::Player::connect_new(&stream.mixer());
+                        let s = rodio::Player::connect_new(stream.mixer());
                         s.set_volume(0.0 as _);
                         s.append(src);
                         sink = Some(s);
