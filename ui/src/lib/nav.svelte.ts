@@ -18,6 +18,7 @@ export type Screen = Saved &
     | { name: 'settings' }
     | { name: 'bios' }
     | { name: 'downloads' }
+    | { name: 'achievements'; romId: number; title: string }
   )
 
 export const nav = $state({ stack: [] as Screen[] })

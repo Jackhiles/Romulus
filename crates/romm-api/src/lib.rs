@@ -13,6 +13,7 @@ mod files;
 mod firmware;
 mod saves;
 mod types;
+mod user;
 
 pub use auth::{Credentials, DEFAULT_SCOPES, DeviceAuthInit, DeviceInfo, DevicePoll};
 pub use error::{Error, Result};
@@ -20,6 +21,7 @@ pub use files::{Download, PlaySession, RomFile, RomFiles};
 pub use firmware::Firmware;
 pub use saves::{SaveUpload, ServerSave};
 pub use types::*;
+pub use user::{EarnedAchievement, RaGameProgress, RaProgression};
 
 use reqwest::{Method, RequestBuilder, StatusCode};
 use std::sync::Arc;
@@ -43,6 +45,7 @@ pub const USED_PATHS: &[&str] = &[
     "/api/play-sessions",
     "/api/saves",
     "/api/firmware",
+    "/api/users/me",
     "/api/firmware/{id}/content/{file_name}",
     "/api/saves/{id}/content",
     "/api/saves/{id}/downloaded",

@@ -102,6 +102,11 @@ const handlers: Record<string, (a: any) => unknown> = {
       ? lib.roms.filter((r) => installed.has(r.id)).map(row)
       : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
   downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
+  achievements: () => ({ total: 3, earned: 1, earned_hardcore: 0, points_total: 30, points_earned: 10, list: [
+    { title: 'Piece Be With You', description: 'Clear the first area', points: 10, badge: null, earned: true, earned_at: '2026-10-09 02:54:14' },
+    { title: 'Wise Guy', description: 'Talk to everyone', points: 10, badge: null, earned: false, earned_at: null },
+    { title: 'Finisher', description: 'Beat the game', points: 10, badge: null, earned: false, earned_at: null },
+  ] }),
   bios_status: () => [
     { platform_id: 1, name: 'PlayStation', slug: 'psx', supported: true, files: [
       { id: 1, name: 'scph1001.bin', size_bytes: 524288, verified: true, state: 'present' },

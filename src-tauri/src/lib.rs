@@ -1,3 +1,4 @@
+mod achievements;
 pub mod app;
 mod bios;
 mod commands;
@@ -103,6 +104,7 @@ pub fn run() {
             commands::open_keyboard,
             commands::add_to_steam,
             commands::log_ui,
+            achievements::achievements,
             bios::bios_status,
             bios::download_bios,
             games::retrodeck_status,

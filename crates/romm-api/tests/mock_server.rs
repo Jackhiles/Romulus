@@ -462,3 +462,21 @@ async fn lists_and_downloads_firmware() {
     assert!(fw[0].is_verified);
     assert_eq!(c.download_firmware(&fw[0]).await.unwrap(), b"BIOS");
 }
+
+#[tokio::test]
+async fn reads_retroachievements_progress() {
+    let s = MockServer::start().await;
+    Mock::given(path("/api/users/me"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": 1, "username": "jack", "ra_username": "jackra",
+            "ra_progression": {"total": 1, "results": [{"rom_ra_id": 11244, "max_possible": 112, "num_awarded": 2,
+              "num_awarded_hardcore": 0, "most_recent_awarded_date": null, "highest_award_kind": null,
+              "earned_achievements": [{"id": "87992", "date": "2026-10-09 02:54:14"}]}]}
+        })))
+        .mount(&s)
+        .await;
+    let c = client(&s).await;
+    let (user, p) = c.ra_progression().await.unwrap().unwrap();
+    assert_eq!(user, "jackra");
+    assert_eq!(p.results[0].earned_achievements[0].id, "87992");
+}

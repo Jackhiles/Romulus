@@ -221,6 +221,26 @@ export interface SaveConflict {
 
 export type PlayStart = { state: 'started'; save: string | null; warning: string | null } | { state: 'conflict'; info: SaveConflict }
 
+export interface Achievement {
+  title: string
+  description: string
+  points: number
+  badge: string | null
+  earned: boolean
+  earned_at: string | null
+}
+
+export interface Achievements {
+  total: number
+  earned: number
+  earned_hardcore: number
+  points_total: number
+  points_earned: number
+  list: Achievement[]
+}
+
+export const achievements = (romId: number) => invoke<Achievements | null>('achievements', { romId })
+
 export type BiosState = 'present' | 'missing' | 'different' | 'unsupported'
 
 export interface BiosSystem {

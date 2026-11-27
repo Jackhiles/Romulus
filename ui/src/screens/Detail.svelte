@@ -2,13 +2,16 @@
   import { onDestroy } from 'svelte'
   import Backdrop from '../components/Backdrop.svelte'
   import Confirm from '../components/Confirm.svelte'
+  import Badge from '../components/Badge.svelte'
   import SaveConflict from '../components/SaveConflict.svelte'
   import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
   import GameInfo from '../components/GameInfo.svelte'
   import {
+    achievements,
     api,
     assetUrl,
+    type Achievements,
     games,
     type InstallStatus,
     type RomDetail,
@@ -20,6 +23,7 @@
   import { screenshots } from '../lib/details.svelte'
   import { ago, hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
+  import { push } from '../lib/nav.svelte'
   import { toast } from '../lib/toast.svelte'
 
   let { romId, siblings = [] }: { romId: number; siblings?: number[] } = $props()
@@ -34,6 +38,17 @@
   let conflict = $state<Conflict | null>(null)
   let starting = $state(false)
   let sync = $state<SaveSyncStatus | null>(null)
+  let ra = $state<Achievements | null>(null)
+
+  $effect(() => {
+    const want = id
+    ra = null
+    achievements(want)
+      .then((a) => {
+        if (want === id) ra = a
+      })
+      .catch(() => {})
+  })
 
   $effect(() => {
     const want = id
@@ -145,6 +160,9 @@
       case 'rb':
         sibling(action === 'rb' ? 1 : -1)
         return true
+      case 'y':
+        if (ra && rom) push({ name: 'achievements', romId: id, title: rom.title })
+        return true
       case 'left':
       case 'right':
         if (shots.length > 1) shot = (shot + (action === 'right' ? 1 : -1) + shots.length) % shots.length
@@ -177,6 +195,7 @@
     else if (status?.state === 'not_installed') h.push(['a', 'Download'])
     if (shots.length > 1) h.push(['right', 'Screenshots'])
     if (siblings.length > 1) h.push(['rb', 'Next game'])
+    if (ra) h.push(['y', 'Achievements'])
     h.push(['b', 'Back'])
     return h
   })
@@ -219,6 +238,17 @@
         <div class="sync-line" class:warn={!!sync?.note && sync.syncs}>
           {#if sync}{syncText(sync)}{/if}
         </div>
+        {#if ra}
+          <div class="ra">
+            <div class="ra-sum">
+              <span class="trophy">🏆</span>
+              {ra.earned} of {ra.total} achievements · {ra.points_earned} / {ra.points_total} points
+            </div>
+            <div class="badges">
+              {#each ra.list.slice(0, 12) as a, i (i)}<Badge path={a.badge} size={40} title={a.title} />{/each}
+            </div>
+          </div>
+        {/if}
       </div>
     </div>
   {/if}
@@ -302,6 +332,23 @@
     background: rgb(255 255 255 / 0.12);
     box-shadow: none;
     color: var(--muted);
+  }
+  .ra {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .ra-sum {
+    color: var(--text-2);
+    font-size: 14px;
+  }
+  .trophy {
+    margin-right: 4px;
+  }
+  .badges {
+    display: flex;
+    gap: 8px;
+    overflow: hidden;
   }
   .sync-line {
     min-height: 20px;
