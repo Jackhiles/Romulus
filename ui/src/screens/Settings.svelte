@@ -131,7 +131,7 @@
       },
       {
         label: 'Renderer',
-        value: s.fast_renderer ? 'Fast (restart to apply)' : 'Compatible',
+        value: s.fast_renderer ? 'Fast' : 'Compatible (slower)',
         cycle: async () => {
           await patch({ fast_renderer: !s.fast_renderer })
           toast(

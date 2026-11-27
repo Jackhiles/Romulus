@@ -23,10 +23,10 @@ pub fn run() {
     // Remove what the last self-update left behind.
     updater::cleanup();
 
-    // WebKitGTK's DMA-BUF renderer is much faster (frames stay on the GPU) but shows a
-    // blank window on some GPU/driver combinations, so it is opt-in: Settings → Renderer,
-    // or ROMULUS_DMABUF=1. ROMULUS_RENDERER=compatible always forces the safe path, as a
-    // way back if the fast one shows nothing.
+    // WebKitGTK's DMA-BUF renderer is much faster (frames stay on the GPU) and is the
+    // default; it shows a blank window on some GPU/driver combinations, so Settings →
+    // Renderer can switch it off, and ROMULUS_RENDERER=compatible (e.g. in Steam's launch
+    // options) always forces the safe path as a way back when nothing is visible.
     let forced_compat = std::env::var("ROMULUS_RENDERER").is_ok_and(|v| v == "compatible");
     let fast =
         !forced_compat && (config.fast_renderer || std::env::var_os("ROMULUS_DMABUF").is_some());

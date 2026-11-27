@@ -29,11 +29,10 @@ each, and use Settings → Copy debug info for anything that fails.
 
 ## Rendering
 
-Romulus uses WebKitGTK's compatible renderer by default (`WEBKIT_DISABLE_DMABUF_RENDERER=1`),
-which avoids blank windows with AppImages on some systems but copies every frame through
-the CPU. Settings → Renderer → Fast switches to the DMA-BUF renderer after a restart. If the
-window stays blank, add `ROMULUS_RENDERER=compatible %command%` to Romulus' launch options
-in Steam to get back.
+Romulus uses WebKitGTK's fast DMA-BUF renderer by default (frames stay on the GPU).
+Settings → Renderer → Compatible switches to the slower renderer
+(`WEBKIT_DISABLE_DMABUF_RENDERER=1`) after a restart. If the window is ever blank, add
+`ROMULUS_RENDERER=compatible %command%` to Romulus' launch options in Steam.
 
 While you move around, Romulus logs frame times (`ui: frames: …` lines in the log), so
 each renderer can be compared with numbers.
