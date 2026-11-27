@@ -95,3 +95,20 @@ backup.
   60 fps (p95 under 26 ms) with the DMA-BUF renderer, which is now the default.
 - A copy started by the self-updater inherits the previous copy's environment, so
   settings carried in environment variables must be set or cleared explicitly at start.
+
+## Save sync (0.4.0)
+
+- RetroDECK's default emulators: SwanStation (RetroArch) for `psx`, PCSX2 standalone for
+  `ps2` (first `<command>` in the bundled `es_systems.xml`; no overrides in this Deck's
+  gamelists).
+- RetroArch: `savefile_directory` is RetroDECK's `saves`, `sort_savefiles_by_content_enable
+  = true`, so a game's battery save is `saves/<game's folder>/<game>.srm` (for a single
+  file in `roms/psx/`, `saves/psx/<game>.srm`).
+- PCSX2: slot 1 is the folder card `saves/ps2/pcsx2/memcards/Memcard.ps2/`; each game's
+  saves are folders named after its serial (`BASLUS-21008Opt`, ...). `_pcsx2_index` files
+  are rewritten on access.
+- RomM knows `save_target` for 434/436 PS1 games (`SLUS-00404`, `file-prefix`) and 13/15
+  PS2 games (`BASLUS-21008`, `folder-prefix`).
+- decky-romm-sync's saves on RomM: slot `autosave`, emulator `retroarch-<core>` or `pcsx2`,
+  PS2 as a zip of the game's card folders. RomM's `content_hash` of that zip matched one
+  recomputed from its entries, which is how Romulus hashes card folders.

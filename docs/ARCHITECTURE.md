@@ -155,6 +155,11 @@ Built in `crates/launcher` (see its module docs); still to be checked on a real 
 
 ## Sync (Phase 3)
 
+Built in `crates/sync` for RetroArch battery saves and PCSX2 folder memory cards (see the
+crate docs and `docs/DECK_FINDINGS.md`). Slot `autosave`, the same naming as
+decky-romm-sync. Save states, BIOS and other standalone emulators are still to do.
+
+
 - Pure, fully tested conflict engine:
   `decide(local: Option<FileState>, server: Option<FileState>, last_synced: Option<SyncRecord>) -> Action`
   where `Action ∈ {NoOp, Upload, Download, Conflict{..}}`. Rule: only one side changed

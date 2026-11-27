@@ -5,8 +5,9 @@ Browse your self-hosted RomM library from a fullscreen "big picture" app that is
 Steam once, and (in later phases) download games on demand, launch them through RetroDECK,
 and keep saves, states and BIOS in sync.
 
-Status: **Phase 1 (browsing) is done; Phase 2 (download and play through RetroDECK) is
-built and awaiting testing on a Deck.** Save sync is Phase 3. See
+Status: **Browsing, downloading and playing through RetroDECK work on a Deck. Save sync
+(Phase 3) is built: RetroArch battery saves for every RetroArch system, and PCSX2 folder
+memory cards for PS2.** Other standalone emulators, save states and BIOS come next. See
 [docs/SPEC.md](docs/SPEC.md) for the plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for how it works.
 
@@ -48,6 +49,7 @@ install it from Settings.
 | Library cache | `~/.local/share/romulus/library-*.db` |
 | Covers | `~/.cache/romulus/covers/` (pruned at 1 GB) |
 | Logs | `~/.local/state/romulus/logs/` |
+| Save backups | `~/.local/share/romulus/backups/<game id>/` (every save Romulus replaces) |
 | Credentials | `~/.config/romulus/credentials.json` (readable only by you) |
 
 ## Development
