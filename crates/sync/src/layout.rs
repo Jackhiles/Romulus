@@ -43,11 +43,73 @@ pub struct Located {
 /// card header (it checks byte 0x16, the "o" of "Format"). A new card's superblock is
 /// empty until a game or the PS2 BIOS formats it, and until then saves in its folders
 /// don't appear. (PCSX2: MemoryCardFolder.cpp, IsFormatted / LoadMemoryCardData.)
+/// The superblock a PS2 writes when it formats a standard 8 MB card, for PCSX2's folder
+/// cards (`_pcsx2_superblock`, one 8 KB block). PCSX2 rebuilds the allocation table of
+/// a folder card from these fields (MemoryCardFolder.h `superblock`, CreateFat,
+/// SetSizeInClusters), so this is all a new card needs to count as formatted.
+pub fn formatted_superblock() -> Vec<u8> {
+    const CLUSTERS: u32 = 8192;
+    let alloc_offset = CLUSTERS / 0x100 + 9; // 41, as PCSX2's SetSizeInClusters
+    let blocks = CLUSTERS / 8;
+    let mut b = vec![0u8; 8192];
+    b[0x00..0x1c].copy_from_slice(b"Sony PS2 Memory Card Format ");
+    b[0x1c..0x23].copy_from_slice(b"1.2.0.0");
+    b[0x28..0x2a].copy_from_slice(&512u16.to_le_bytes()); // page_len
+    b[0x2a..0x2c].copy_from_slice(&2u16.to_le_bytes()); // pages_per_cluster
+    b[0x2c..0x2e].copy_from_slice(&16u16.to_le_bytes()); // pages_per_block
+    b[0x2e..0x30].copy_from_slice(&0xFF00u16.to_le_bytes());
+    b[0x30..0x34].copy_from_slice(&CLUSTERS.to_le_bytes());
+    b[0x34..0x38].copy_from_slice(&alloc_offset.to_le_bytes());
+    b[0x38..0x3c].copy_from_slice(&(CLUSTERS - 0x10 - alloc_offset).to_le_bytes()); // alloc_end
+    b[0x3c..0x40].copy_from_slice(&0u32.to_le_bytes()); // rootdir_cluster
+    b[0x40..0x44].copy_from_slice(&(blocks - 1).to_le_bytes()); // backup_block1
+    b[0x44..0x48].copy_from_slice(&(blocks - 2).to_le_bytes()); // backup_block2
+    b[0x50..0x54].copy_from_slice(&8u32.to_le_bytes()); // ifc_list[0]
+    for i in 0..32 {
+        let o = 0xd0 + i * 4; // bad_block_list: none
+        b[o..o + 4].copy_from_slice(&u32::MAX.to_le_bytes());
+    }
+    b[0x150] = 2; // card_type: PS2
+    b[0x151] = 0x52; // card_flags
+    b
+}
+
 pub fn folder_card_formatted(card: &Path) -> bool {
     std::fs::read(card.join("_pcsx2_superblock")).is_ok_and(|b| b.get(0x16) == Some(&0x6F))
 }
 
-const UNFORMATTED_CARD: &str = "PCSX2's memory card isn't formatted yet, so saves on it don't show. When the game offers to format the card, choose yes, then quit right away without saving and start the game again: your saves will be there.";
+const DAMAGED_CARD: &str = "PCSX2's memory card header (_pcsx2_superblock) is damaged, so saves on it may not show. Romulus leaves it alone; check the card in PCSX2's memory card settings.";
+
+/// Make a new (never formatted) PCSX2 folder card formatted, as a PS2 would on first
+/// use, so restored saves show. Only a missing or empty superblock is replaced, after
+/// copying it to `backup_dir`; a non-empty one that isn't valid is left alone. Returns
+/// whether it wrote one. Checked on a Deck: PCSX2 then indexes the card's folders.
+pub fn ensure_card_formatted(card: &Path, backup_dir: &Path) -> std::io::Result<bool> {
+    let sb = card.join("_pcsx2_superblock");
+    let len = match std::fs::metadata(&sb) {
+        Ok(m) => m.len(),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => 0,
+        Err(e) => return Err(e),
+    };
+    if len != 0 || !card.is_dir() {
+        return Ok(false);
+    }
+    if sb.exists() {
+        std::fs::create_dir_all(backup_dir)?;
+        std::fs::copy(&sb, backup_dir.join("_pcsx2_superblock"))?;
+    }
+    let tmp = card.join("_pcsx2_superblock.romulus-tmp");
+    std::fs::write(&tmp, formatted_superblock())?;
+    std::fs::rename(&tmp, &sb)?;
+    tracing::info!("formatted PCSX2 folder card {}", card.display());
+    Ok(true)
+}
+
+/// A superblock that exists, isn't empty, and isn't valid.
+fn card_damaged(card: &Path) -> bool {
+    std::fs::read(card.join("_pcsx2_superblock"))
+        .is_ok_and(|b| !b.is_empty() && b.get(0x16) != Some(&0x6F))
+}
 
 /// `key = "value"` lines (retroarch.cfg).
 fn cfg_value(text: &str, key: &str) -> Option<String> {
@@ -141,7 +203,7 @@ pub fn locate(
                 (Some(t), Some("folder-prefix")) if !t.is_empty() => t.to_string(),
                 _ => return Err("RomM doesn't know this game's PS2 serial".into()),
             };
-            let warning = (!folder_card_formatted(&card)).then(|| UNFORMATTED_CARD.to_string());
+            let warning = card_damaged(&card).then(|| DAMAGED_CARD.to_string());
             Ok(Located {
                 spec: SaveSpec::CardFolders {
                     card_dir: card,
@@ -213,6 +275,20 @@ mod tests {
     }
 
     #[test]
+    fn formatted_superblock_matches_pcsx2() {
+        let b = formatted_superblock();
+        assert_eq!(b.len(), 8192); // PCSX2 reads exactly one block
+        assert_eq!(b[0x16], 0x6F); // its IsFormatted() check
+        let u32_at = |o: usize| u32::from_le_bytes(b[o..o + 4].try_into().unwrap());
+        // The values PCSX2's SetSizeInClusters(8192) computes.
+        assert_eq!((u32_at(0x30), u32_at(0x34), u32_at(0x38)), (8192, 41, 8135));
+        assert_eq!((u32_at(0x40), u32_at(0x44)), (1023, 1022));
+        let d = tempfile::tempdir().unwrap();
+        std::fs::write(d.path().join("_pcsx2_superblock"), &b).unwrap();
+        assert!(folder_card_formatted(d.path()));
+    }
+
+    #[test]
     fn pcsx2_uses_the_folder_card_and_the_serial() {
         let d = tempfile::tempdir().unwrap();
         let ds = dirs(
@@ -250,7 +326,8 @@ mod tests {
             }
         );
         assert_eq!((l.emulator.as_str(), l.ext), ("pcsx2", "zip"));
-        // A new card (empty superblock, as PCSX2 creates it) is unformatted.
+        // A new card (empty superblock, as PCSX2 creates it) gets formatted, with a
+        // backup of the empty file; no warning.
         let cardd = d.path().join("saves/ps2/pcsx2/memcards/Memcard.ps2");
         std::fs::write(cardd.join("_pcsx2_superblock"), b"").unwrap();
         let l = locate(
@@ -261,10 +338,20 @@ mod tests {
             Some("folder-prefix"),
         )
         .unwrap();
-        assert!(l.warning.is_some());
-        let mut sb = vec![0u8; 8192];
-        sb[..28].copy_from_slice(b"Sony PS2 Memory Card Format ");
-        std::fs::write(cardd.join("_pcsx2_superblock"), sb).unwrap();
+        assert_eq!(l.warning, None);
+        let bk = d.path().join("bk");
+        assert!(ensure_card_formatted(&cardd, &bk).unwrap());
+        assert!(folder_card_formatted(&cardd));
+        assert_eq!(std::fs::read(bk.join("_pcsx2_superblock")).unwrap(), b"");
+        // Already formatted: left alone.
+        assert!(!ensure_card_formatted(&cardd, &bk).unwrap());
+        // Damaged: left alone, with a warning.
+        std::fs::write(cardd.join("_pcsx2_superblock"), b"garbage").unwrap();
+        assert!(!ensure_card_formatted(&cardd, &bk).unwrap());
+        assert_eq!(
+            std::fs::read(cardd.join("_pcsx2_superblock")).unwrap(),
+            b"garbage"
+        );
         let l = locate(
             &Emulator::Pcsx2,
             game,
@@ -273,7 +360,7 @@ mod tests {
             Some("folder-prefix"),
         )
         .unwrap();
-        assert_eq!(l.warning, None);
+        assert!(l.warning.is_some());
         assert!(locate(&Emulator::Pcsx2, game, &ds, None, None).is_err());
     }
 }

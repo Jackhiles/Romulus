@@ -162,6 +162,14 @@ pub async fn before(
     record: Option<&Record>,
     choice: Option<Choice>,
 ) -> Result<Outcome> {
+    // A never-formatted PCSX2 card ignores its folders; format it as a PS2 would.
+    if let local::SaveSpec::CardFolders { card_dir, .. } = &game.spec {
+        let label = format!("{}-before-card-format", stamp());
+        crate::layout::ensure_card_formatted(
+            card_dir,
+            &ctx.backups.join("pcsx2-card").join(label),
+        )?;
+    }
     let saves = ctx.client.saves(rom_id, ctx.device_id).await?;
     let server = pick(&saves, game.ext);
     let local = local::read(&game.spec)?;

@@ -112,3 +112,10 @@ backup.
 - decky-romm-sync's saves on RomM: slot `autosave`, emulator `retroarch-<core>` or `pcsx2`,
   PS2 as a zip of the game's card folders. RomM's `content_hash` of that zip matched one
   recomputed from its entries, which is how Romulus hashes card folders.
+- A new PCSX2 folder card has an empty `_pcsx2_superblock` (PCSX2 creates it that way) and
+  counts as unformatted: PCSX2 ignores the card's folders, so restored saves don't show,
+  and Katamari Damacy only reported "no data" instead of offering to format. Writing the
+  superblock a PS2 writes when formatting an 8 MB card (`sync::layout::formatted_superblock`)
+  fixed it on the Deck: PCSX2 logged `FolderMcd: Indexing slot 0 with filter "SLUS-21008"`
+  and the restored save loaded. Romulus now does this before syncing, only for a missing
+  or empty superblock, backing up the old file.
