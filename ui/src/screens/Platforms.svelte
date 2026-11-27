@@ -15,7 +15,9 @@
   import { hueOf } from '../lib/format'
   import { page, step } from '../lib/grid'
   import { onAction, type Action } from '../lib/input'
+  import { systemsWithCollections } from '../lib/collections'
   import { library, refresh } from '../lib/library.svelte'
+  import { device } from '../lib/play.svelte'
   import { push, type Screen } from '../lib/nav.svelte'
 
   let { entry = $bindable() }: { entry: Screen } = $props()
@@ -41,7 +43,8 @@
 
   $effect(() => {
     void library.revision
-    Promise.all([api.platforms(), api.platformCovers(6)]).then(([p, c]) => {
+    void device.revision
+    systemsWithCollections(6).then(({ list: p, covers: c }) => {
       platforms = p
       covers = c
       index = Math.min(index, Math.max(p.length - 1, 0))
@@ -51,7 +54,8 @@
 
   const focused = $derived(platforms[index])
   const hue = $derived(focused ? hueOf(focused.slug) : 220)
-  const total = $derived(platforms.reduce((s, p) => s + p.rom_count, 0))
+  const total = $derived(platforms.filter((p) => p.id > 0).reduce((s, p) => s + p.rom_count, 0))
+  const systemCount = $derived(platforms.filter((p) => p.id > 0).length)
 
   function open(i: number) {
     const p = platforms[i]
@@ -124,7 +128,7 @@
 
 <div class="screen">
   <Backdrop {hue} />
-  <Header title={APP_NAME} subtitle={total ? `${platforms.length} systems · ${total} games` : ''} />
+  <Header title={APP_NAME} subtitle={total ? `${systemCount} systems · ${total} games` : ''} />
 
   {#if loaded && platforms.length === 0}
     <div class="empty">

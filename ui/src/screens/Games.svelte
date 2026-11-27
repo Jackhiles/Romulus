@@ -6,7 +6,9 @@
   import { api, type GamesView, type Platform, type Rom, type Sort } from '../lib/api'
   import { hueOf } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
+  import { gamesOf, isCollection, systemsWithCollections } from '../lib/collections'
   import { library } from '../lib/library.svelte'
+  import { device } from '../lib/play.svelte'
   import { push, type Screen } from '../lib/nav.svelte'
 
   let { entry = $bindable() }: { entry: Screen } = $props()
@@ -21,6 +23,9 @@
   let view = $state<GamesView>('list')
   let views: Record<string, GamesView> = {}
   let platforms: Platform[] = []
+  // Collections mix systems, so their rows name the system.
+  let slugOf = $state<Record<number, string>>({})
+  api.platforms().then((ps) => (slugOf = Object.fromEntries(ps.map((p) => [p.id, p.slug.toUpperCase()]))))
 
   $effect(() => {
     g.index = index
@@ -31,16 +36,17 @@
     views = s.games_view ?? {}
     view = views[g.platformSlug] ?? 'list'
   })
-  api.platforms().then((p) => (platforms = p))
+  systemsWithCollections(0).then((s) => (platforms = s.list))
 
   $effect(() => {
     void library.revision
+    void device.revision
     const pid = g.platformId
     const order = sort
     // Keep focus on the same game across reloads (read untracked, or this effect would
     // re-run every time it loads).
     const keep = untrack(() => roms[index]?.id)
-    api.roms(pid, order).then((r) => {
+    gamesOf(pid, order).then((r) => {
       if (pid !== g.platformId) return
       roms = r
       const i = keep ? r.findIndex((x) => x.id === keep) : -1
@@ -107,5 +113,13 @@
 </script>
 
 <Header title={g.platformName} subtitle={`${roms.length} games${sort === 'newest' ? ' · newest first' : ''}`} />
-<GameBrowser {roms} bind:index {view} hue={hueOf(g.platformSlug)} letters={sort === 'title'} onopen={open} />
+<GameBrowser
+  {roms}
+  bind:index
+  {view}
+  hue={hueOf(g.platformSlug)}
+  letters={sort === 'title' && !isCollection(g.platformId)}
+  onopen={open}
+  tag={isCollection(g.platformId) ? (r) => slugOf[r.platform_id] ?? '' : undefined}
+/>
 <Footer {hints} />

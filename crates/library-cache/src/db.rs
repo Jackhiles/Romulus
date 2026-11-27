@@ -63,6 +63,13 @@ CREATE TABLE save_sync (
     data   TEXT NOT NULL
 );
 "#,
+    r#"
+-- When each game was last started on this device (unix seconds).
+CREATE TABLE played (
+    rom_id      INTEGER PRIMARY KEY,
+    last_played INTEGER NOT NULL
+);
+"#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -552,6 +559,44 @@ impl Cache {
         Ok(())
     }
 
+    pub fn mark_played_now(&self, rom_id: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO played (rom_id, last_played) VALUES (?1, unixepoch())
+             ON CONFLICT(rom_id) DO UPDATE SET last_played = excluded.last_played",
+            [rom_id],
+        )?;
+        Ok(())
+    }
+
+    /// Recently played games, newest first: played here, or (per RomM) on any device.
+    pub fn recently_played(&self, limit: usize) -> Result<Vec<RomRow>> {
+        let sql = format!(
+            "{ROM_SELECT}
+             LEFT JOIN played ON played.rom_id = roms.id
+             WHERE played.last_played IS NOT NULL OR json_extract(roms.json, '$.rom_user.last_played') IS NOT NULL
+             ORDER BY MAX(COALESCE(played.last_played, 0),
+                          COALESCE(unixepoch(json_extract(roms.json, '$.rom_user.last_played')), 0)) DESC
+             LIMIT ?1"
+        );
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map([limit as i64], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Games downloaded to this device, by title.
+    pub fn installed_roms(&self) -> Result<Vec<RomRow>> {
+        let sql = format!(
+            "{ROM_SELECT} JOIN installs ON installs.rom_id = roms.id ORDER BY roms.sort_key, roms.id"
+        );
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map([], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     pub fn rom_count(&self) -> Result<i64> {
         Ok(self
             .conn
@@ -637,6 +682,35 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn recently_played_and_installed() {
+        let mut c = Cache::open_in_memory().unwrap();
+        let with_user = |id: i64, name: &str, last: Option<&str>| -> Rom {
+            serde_json::from_value(json!({
+                "id": id, "platform_id": 1, "name": name, "fs_name": "g.bin",
+                "rom_user": {"last_played": last}
+            }))
+            .unwrap()
+        };
+        c.upsert_roms(&[
+            with_user(1, "Old on RomM", Some("2020-01-01T00:00:00")),
+            with_user(2, "Never", None),
+            with_user(3, "Played here", None),
+        ])
+        .unwrap();
+        c.mark_played_now(3).unwrap();
+        let ids: Vec<i64> = c
+            .recently_played(10)
+            .unwrap()
+            .iter()
+            .map(|r| r.id)
+            .collect();
+        assert_eq!(ids, [3, 1]);
+
+        c.set_install(2, "{}", 1).unwrap();
+        assert_eq!(c.installed_roms().unwrap()[0].id, 2);
     }
 
     #[test]

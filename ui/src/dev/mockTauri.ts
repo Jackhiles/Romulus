@@ -97,6 +97,10 @@ const handlers: Record<string, (a: any) => unknown> = {
     setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000, save: 'uploaded' }), 2500)
     return { state: 'started', save: choice === 'use_server' ? 'downloaded' : null, warning: null }
   },
+  collection: ({ kind }) =>
+    kind === 'installed'
+      ? lib.roms.filter((r) => installed.has(r.id)).map(row)
+      : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
   bios_status: () => [
     { platform_id: 1, name: 'PlayStation', slug: 'psx', supported: true, files: [
       { id: 1, name: 'scph1001.bin', size_bytes: 524288, verified: true, state: 'present' },

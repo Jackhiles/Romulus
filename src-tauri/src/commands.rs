@@ -256,6 +256,16 @@ pub async fn platform_covers(
     with_cache(&state, move |c| c.platform_covers(per_platform.min(12))).await
 }
 
+/// Automatic collections: "recent" (continue playing) or "installed" (on this Deck).
+#[tauri::command]
+pub async fn collection(state: State<'_, AppState>, kind: String) -> Res<Vec<RomRow>> {
+    match kind.as_str() {
+        "recent" => with_cache(&state, |c| c.recently_played(60)).await,
+        "installed" => with_cache(&state, |c| c.installed_roms()).await,
+        _ => Err("unknown collection".into()),
+    }
+}
+
 #[tauri::command]
 pub async fn search(state: State<'_, AppState>, query: String) -> Res<Vec<RomRow>> {
     with_cache(&state, move |c| c.search(&query, 200)).await
