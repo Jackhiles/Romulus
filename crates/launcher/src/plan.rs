@@ -86,8 +86,10 @@ pub fn plan(rom: &RomFiles, system_dir: &Path) -> Result<Plan> {
         return Err(Error::BadLayout("no game files".into()));
     }
 
-    // A single file directly in the system folder, or a game folder.
-    let root = if files.len() == 1 && files[0].dest.parent() == Some(system_dir) {
+    // A single file directly in the system folder, loose files there (a playlist with
+    // its discs), or a game folder.
+    let loose = files.iter().all(|f| f.dest.parent() == Some(system_dir));
+    let root = if loose {
         files[0].dest.clone()
     } else {
         let first = files[0]
@@ -106,10 +108,12 @@ pub fn plan(rom: &RomFiles, system_dir: &Path) -> Result<Plan> {
     let launch = if files.len() == 1 {
         files[0].dest.clone()
     } else {
-        // Top-level game files of the folder, best format first, else the largest.
+        // Top-level game files of the folder (or the loose files), best format first,
+        // else the largest.
+        let top_dir = if loose { system_dir } else { root.as_path() };
         let top: Vec<&PlannedFile> = files
             .iter()
-            .filter(|f| f.dest.parent() == Some(root.as_path()))
+            .filter(|f| f.dest.parent() == Some(top_dir))
             .filter(|f| f.file.category.as_deref().is_none_or(|c| c == "game"))
             .collect();
         let by_order = LAUNCH_ORDER
@@ -123,6 +127,8 @@ pub fn plan(rom: &RomFiles, system_dir: &Path) -> Result<Plan> {
             .clone()
     };
 
+    // Loose files: the install is the launch file plus its parts.
+    let root = if loose { launch.clone() } else { root };
     let total_bytes = files.iter().map(|f| f.file.file_size_bytes).sum();
     Ok(Plan {
         rom_id: rom.id,
@@ -208,6 +214,22 @@ mod tests {
         assert_eq!(p.root, Path::new("/sd/roms/ps2/Katamari Damacy (USA)"));
         assert_eq!(p.launch, p.root.join("Katamari Damacy (USA).chd"));
         assert_eq!(p.total_bytes, 1308408890);
+    }
+
+    #[test]
+    fn loose_playlist_with_its_discs() {
+        // How this server stores multi-disc PS1 games: playlist and discs as loose files.
+        let r = rom(
+            json!({"id": 1424, "fs_name": "Alone (USA).m3u", "fs_path": "roms/psx", "platform_fs_slug": "psx",
+            "files": [f(1, "Alone (USA).m3u", "roms/psx", 116, "game"),
+                      f(2, "Alone (USA) (Disc 1).chd", "roms/psx", 375904839, "game"),
+                      f(3, "Alone (USA) (Disc 2).chd", "roms/psx", 403382529, "game")]}),
+        );
+        let p = plan(&r, Path::new("/sd/roms/psx")).unwrap();
+        assert_eq!(p.launch, Path::new("/sd/roms/psx/Alone (USA).m3u"));
+        assert_eq!(p.root, p.launch);
+        assert_eq!(p.files.len(), 3);
+        assert_eq!(p.total_bytes, 116 + 375904839 + 403382529);
     }
 
     #[test]

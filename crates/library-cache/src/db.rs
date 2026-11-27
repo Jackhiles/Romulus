@@ -100,6 +100,8 @@ pub struct RomRow {
     pub cover_small: Option<String>,
     pub cover_large: Option<String>,
     pub updated_at: Option<String>,
+    /// Other versions of this game (grouped lists only).
+    pub versions: u32,
 }
 
 /// A play session waiting to be reported to RomM (times are RFC 3339).
@@ -406,6 +408,89 @@ impl Cache {
         Ok(rows)
     }
 
+    /// A platform's entries grouped into games (see [`crate::group`]).
+    pub fn platform_groups(&self, platform_id: i64) -> Result<Vec<crate::group::Group>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT id, fs_name, json_extract(json, '$.sibling_roms'), json_extract(json, '$.rom_user.is_main_sibling')
+             FROM roms WHERE platform_id = ?1",
+        )?;
+        let members = st
+            .query_map([platform_id], |r| {
+                let sib: Option<String> = r.get(2)?;
+                let siblings = sib
+                    .and_then(|s| serde_json::from_str::<Vec<serde_json::Value>>(&s).ok())
+                    .unwrap_or_default()
+                    .iter()
+                    .filter_map(|v| v["id"].as_i64())
+                    .collect();
+                Ok(crate::group::Member {
+                    id: r.get(0)?,
+                    fs_name: r.get(1)?,
+                    siblings,
+                    main: r.get::<_, Option<i64>>(3)?.unwrap_or(0) == 1,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(crate::group::group(&members))
+    }
+
+    /// The group a ROM belongs to.
+    pub fn group_of(&self, rom_id: i64) -> Result<Option<crate::group::Group>> {
+        let Some((row, _)) = self.rom(rom_id)? else {
+            return Ok(None);
+        };
+        Ok(self
+            .platform_groups(row.platform_id)?
+            .into_iter()
+            .find(|g| g.rep == rom_id || g.versions.contains(&rom_id) || g.parts.contains(&rom_id)))
+    }
+
+    /// A game's versions (itself included) as list rows, best first.
+    pub fn versions_of(&self, rom_id: i64) -> Result<Vec<RomRow>> {
+        let Some(g) = self.group_of(rom_id)? else {
+            return Ok(Vec::new());
+        };
+        let mut out = Vec::new();
+        for id in std::iter::once(g.rep).chain(g.versions) {
+            if let Some((r, _)) = self.rom(id)? {
+                out.push(r);
+            }
+        }
+        Ok(out)
+    }
+
+    /// Keep one row per game: representatives get their version count; versions and
+    /// disc parts are replaced by (or merged into) their representative.
+    fn collapse(&self, rows: Vec<RomRow>) -> Result<Vec<RomRow>> {
+        let mut groups: HashMap<i64, Vec<crate::group::Group>> = HashMap::new();
+        let mut seen = HashSet::new();
+        let mut out = Vec::with_capacity(rows.len());
+        for row in rows {
+            let gs = match groups.get(&row.platform_id) {
+                Some(g) => g,
+                None => {
+                    let g = self.platform_groups(row.platform_id)?;
+                    groups.entry(row.platform_id).or_insert(g)
+                }
+            };
+            let g = gs.iter().find(|g| {
+                g.rep == row.id || g.versions.contains(&row.id) || g.parts.contains(&row.id)
+            });
+            let (rep, versions) = g.map_or((row.id, 0), |g| (g.rep, g.versions.len() as u32));
+            if !seen.insert(rep) {
+                continue;
+            }
+            let mut r = if rep == row.id {
+                row
+            } else {
+                self.rom(rep)?.map(|(r, _)| r).unwrap_or(row)
+            };
+            r.versions = versions;
+            out.push(r);
+        }
+        Ok(out)
+    }
+
     pub fn roms(&self, platform_id: i64, order: SortOrder) -> Result<Vec<RomRow>> {
         let sql = match order {
             SortOrder::Title => {
@@ -417,7 +502,7 @@ impl Cache {
         let rows = st
             .query_map([platform_id], rom_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows)
+        self.collapse(rows)
     }
 
     pub fn rom(&self, id: i64) -> Result<Option<(RomRow, serde_json::Value)>> {
@@ -452,7 +537,7 @@ impl Cache {
         let rows = st
             .query_map(params![terms.join(" "), limit as i64], rom_row)?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        Ok(rows)
+        self.collapse(rows)
     }
 
     /// Up to `n` small cover paths per platform (most recently updated games first).
@@ -650,6 +735,7 @@ fn rom_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<RomRow> {
         cover_small: r.get(5)?,
         cover_large: r.get(6)?,
         updated_at: r.get(7)?,
+        versions: 0,
     })
 }
 
@@ -716,6 +802,32 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn lists_one_entry_per_game() {
+        let mut c = Cache::open_in_memory().unwrap();
+        let r = |id: i64, name: &str, sib: &[i64]| -> Rom {
+            serde_json::from_value(json!({
+                "id": id, "platform_id": 1, "name": "Alone in the Dark", "fs_name": name,
+                "path_cover_small": "/c.png",
+                "sibling_roms": sib.iter().map(|s| json!({"id": s})).collect::<Vec<_>>()
+            }))
+            .unwrap()
+        };
+        c.upsert_roms(&[
+            r(1425, "Alone (USA) (Disc 1).chd", &[1424, 1426]),
+            r(1424, "Alone (USA).m3u", &[1425, 1426]),
+            r(1426, "Alone (USA) (Disc 2).chd", &[1424, 1425]),
+            r(7, "Alone (Europe).m3u", &[]),
+        ])
+        .unwrap();
+        let rows = c.roms(1, SortOrder::Title).unwrap();
+        let ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&1424) && ids.contains(&7));
+        assert_eq!(c.group_of(1426).unwrap().unwrap().parts, vec![1425, 1426]);
+        assert_eq!(c.search("alone", 10).unwrap().len(), 2);
     }
 
     #[test]

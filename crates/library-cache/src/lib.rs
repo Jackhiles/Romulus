@@ -6,6 +6,7 @@
 
 mod covers;
 mod db;
+pub mod group;
 mod refresh;
 
 pub use covers::CoverCache;

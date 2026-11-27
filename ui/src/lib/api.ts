@@ -35,6 +35,8 @@ export interface Rom {
   cover_small: string | null
   cover_large: string | null
   updated_at: string | null
+  /** Other versions of this game (regions, revisions); 0 when none. */
+  versions?: number
 }
 
 export interface RomDetail extends Rom {
@@ -98,6 +100,7 @@ export const api = {
   search: (query: string) => invoke<Rom[]>('search', { query }),
   collection: (kind: 'recent' | 'installed') => invoke<Rom[]>('collection', { kind }),
   randomRom: () => invoke<Rom | null>('random_rom'),
+  versions: (romId: number) => invoke<Rom[]>('versions', { romId }),
   refreshLibrary: () => invoke<boolean>('refresh_library'),
   checkUpdate: () => invoke<Release | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),

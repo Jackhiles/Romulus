@@ -104,6 +104,7 @@ const handlers: Record<string, (a: any) => unknown> = {
       ? lib.roms.filter((r) => installed.has(r.id)).map(row)
       : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
   downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
+  versions: () => [],
   random_rom: () => row(lib.roms[Math.floor(Math.random() * lib.roms.length)]),
   preview_music: () => false,
   stop_music: () => null,

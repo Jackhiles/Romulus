@@ -15,6 +15,7 @@
     type Achievements,
     games,
     type InstallStatus,
+    type Rom,
     type RomDetail,
     type SaveChoice,
     type SaveSyncStatus,
@@ -22,7 +23,7 @@
   } from '../lib/api'
   import { device, progressText, removed, saveMessage, startDownload } from '../lib/play.svelte'
   import { screenshots } from '../lib/details.svelte'
-  import { ago, hueOf, size } from '../lib/format'
+  import { ago, fileTags, hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
   import { push } from '../lib/nav.svelte'
   import { toast } from '../lib/toast.svelte'
@@ -41,6 +42,25 @@
   let starting = $state(false)
   let sync = $state<SaveSyncStatus | null>(null)
   let ra = $state<Achievements | null>(null)
+  let versions = $state<Rom[]>([])
+
+  $effect(() => {
+    const want = id
+    api
+      .versions(want)
+      .then((v) => {
+        // Keep the list while switching between its versions.
+        if (want === id && !versions.some((x) => x.id === want)) versions = v
+      })
+      .catch(() => {})
+  })
+  const vIndex = $derived(versions.findIndex((v) => v.id === id))
+
+  function switchVersion(delta: number) {
+    if (versions.length < 2) return
+    const i = vIndex < 0 ? 0 : vIndex
+    id = versions[(i + delta + versions.length) % versions.length].id
+  }
 
   // The game's music (kept if it was already playing from the list).
   $effect(() => {
@@ -172,7 +192,11 @@
       case 'y':
         if (ra && rom) push({ name: 'achievements', romId: id, title: rom.title })
         return true
+      case 'lt':
       case 'rt':
+        switchVersion(action === 'rt' ? 1 : -1)
+        return true
+      case 'select':
         // Opened by "Surprise me": another random game.
         if (surprise) api.randomRom().then((r) => r && (id = r.id))
         return true
@@ -209,7 +233,8 @@
     if (shots.length > 1) h.push(['right', 'Screenshots'])
     if (siblings.length > 1) h.push(['rb', 'Next game'])
     if (ra) h.push(['y', 'Achievements'])
-    if (surprise) h.push(['rt', 'Another'])
+    if (versions.length > 1) h.push(['rt', 'Version'])
+    if (surprise) h.push(['select', 'Another'])
     h.push(['b', 'Back'])
     return h
   })
@@ -225,6 +250,11 @@
         <GameInfo title={rom.title} detail={rom} lines={7} size="lg" />
         <!-- Multi-disc games report the size of their small playlist file only. -->
         <div class="file">{rom.fs_name}{rom.size_bytes >= 1024 ? ` · ${size(rom.size_bytes)}` : ''}</div>
+        {#if versions.length > 1}
+          <div class="version">
+            Version {vIndex + 1} of {versions.length}{fileTags(rom.fs_name) ? ` · ${fileTags(rom.fs_name)}` : ''} · LT/RT to switch
+          </div>
+        {/if}
         <div class="actions">
           {#if busy}
             <div class="progress">
@@ -363,6 +393,11 @@
     display: flex;
     gap: 8px;
     overflow: hidden;
+  }
+  .version {
+    color: var(--accent);
+    font-size: 14px;
+    font-weight: 600;
   }
   .sync-line {
     min-height: 20px;

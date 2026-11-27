@@ -80,7 +80,14 @@ pub async fn install_status(state: State<'_, AppState>, rom_id: i64) -> Res<Inst
         return Ok(InstallStatus::Downloading);
     }
     let (_, cache) = session_parts(&state).await?;
-    if let Some(r) = record(&cache, rom_id) {
+    // Installed before discs came with their playlist: only the playlist is there.
+    let parts = lock(&cache)
+        .group_of(rom_id)
+        .ok()
+        .flatten()
+        .map(|g| g.parts.len())
+        .unwrap_or(0);
+    if let Some(r) = record(&cache, rom_id).filter(|r| parts == 0 || r.files.len() > parts) {
         if r.launch.is_file() {
             return Ok(InstallStatus::Installed {
                 size_bytes: r.size_bytes,
@@ -213,7 +220,18 @@ async fn run_download(app: &AppHandle, rom_id: i64, cancel: &AtomicBool) -> Down
     *lock(&st.active_download) = Some((rom_id, 0, 0));
     let last = Mutex::new(Instant::now() - Duration::from_secs(1));
     let result: launcher::Result<Installed> = async {
-        let files = client.rom_files(rom_id).await?;
+        let mut files = client.rom_files(rom_id).await?;
+        // A playlist stored as a loose file: its disc images are separate entries in
+        // RomM (siblings) and come with it.
+        let parts = lock(&cache)
+            .group_of(rom_id)
+            .ok()
+            .flatten()
+            .map(|g| g.parts)
+            .unwrap_or_default();
+        for part in parts {
+            files.files.extend(client.rom_files(part).await?.files);
+        }
         let folder = launcher::systems::folder_for(&rd.roms, &files.platform_fs_slug, &slug)
             .ok_or_else(|| launcher::Error::NoSystemFolder(files.platform_fs_slug.clone()))?;
         let system_dir = rd.roms.join(folder);

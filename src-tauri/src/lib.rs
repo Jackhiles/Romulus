@@ -92,6 +92,7 @@ pub fn run() {
             commands::search,
             commands::collection,
             commands::random_rom,
+            commands::versions,
             commands::set_games_view,
             commands::platform_covers,
             commands::asset,

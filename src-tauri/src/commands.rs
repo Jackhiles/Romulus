@@ -256,6 +256,12 @@ pub async fn platform_covers(
     with_cache(&state, move |c| c.platform_covers(per_platform.min(12))).await
 }
 
+/// Other versions of a game (itself included), best first.
+#[tauri::command]
+pub async fn versions(state: State<'_, AppState>, rom_id: i64) -> Res<Vec<RomRow>> {
+    with_cache(&state, move |c| c.versions_of(rom_id)).await
+}
+
 /// A random game with cover art.
 #[tauri::command]
 pub async fn random_rom(state: State<'_, AppState>) -> Res<Option<RomRow>> {

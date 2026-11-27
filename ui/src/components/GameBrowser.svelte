@@ -48,7 +48,14 @@
     for (const r of roms) (seen.has(r.title) ? twice : seen).add(r.title)
     return twice
   })
-  const tagOf = (r: Rom) => (tag ? tag(r) : repeated.has(r.title) ? fileTags(r.fs_name) : '')
+  const tagOf = (r: Rom) =>
+    tag
+      ? tag(r)
+      : r.versions
+        ? `${r.versions + 1} versions`
+        : repeated.has(r.title)
+          ? fileTags(r.fs_name)
+          : ''
 
   let cols = $state(1)
   let rows = $state(1)
