@@ -1,6 +1,7 @@
 // Shared library sync state: last sync time, refresh progress, and a revision number
 // that screens watch to reload from the cache when a refresh brings changes.
 import { api, onRefresh } from './api'
+import { device } from './play.svelte'
 import { toast } from './toast.svelte'
 
 export const library = $state({
@@ -43,16 +44,34 @@ export function initLibrary(onUnauthorized: () => void) {
           toast('Your RomM sign-in expired. Please sign in again.', 'error', 6000)
           onUnauthorized()
         } else {
-          toast(`Sync failed: ${e.message}`, 'error', 6000)
+          // Usually RomM is down or the Deck is offline: try again later by itself.
+          toast(`Sync failed (${e.message}). Trying again in 5 minutes.`, 'error', 6000)
+          scheduleRefresh(RETRY_MS)
         }
         break
     }
   }).catch(() => {})
 }
 
+const RETRY_MS = 5 * 60_000
+const PERIODIC_MS = 30 * 60_000
+let timer: ReturnType<typeof setTimeout> | undefined
+
+/** Sync again after `ms` (replacing any sync already scheduled). Skipped while a game
+ *  runs; tried again later instead. */
+function scheduleRefresh(ms: number) {
+  clearTimeout(timer)
+  timer = setTimeout(() => {
+    if (device.playing !== null) scheduleRefresh(RETRY_MS)
+    else refresh()
+  }, ms)
+}
+
 /** Start a background sync. Progress and completion arrive as events (which can come
  *  before this call returns, so the events alone drive `library.refreshing`). */
 export async function refresh() {
+  // The next periodic sync counts from now; an error reschedules sooner.
+  scheduleRefresh(PERIODIC_MS)
   try {
     await api.refreshLibrary()
   } catch (e) {
