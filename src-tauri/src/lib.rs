@@ -71,6 +71,8 @@ pub fn run() {
             commands::roms,
             commands::rom,
             commands::search,
+            commands::set_games_view,
+            commands::platform_covers,
             commands::asset,
             commands::refresh_library,
             commands::check_update,

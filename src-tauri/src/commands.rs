@@ -236,6 +236,26 @@ pub async fn rom(state: State<'_, AppState>, id: i64) -> Res<Option<RomDetail>> 
     Ok(r.map(|(row, data)| RomDetail { row, data }))
 }
 
+/// Remember the games layout ("list" or "grid") for one platform.
+#[tauri::command]
+pub fn set_games_view(state: State<'_, AppState>, platform: String, view: String) -> Res<()> {
+    if !["list", "grid"].contains(&view.as_str()) {
+        return Err("unknown games view".into());
+    }
+    lock(&state.config).games_view.insert(platform, view);
+    state.save_config();
+    Ok(())
+}
+
+/// A few cover paths per platform, for the systems screen.
+#[tauri::command]
+pub async fn platform_covers(
+    state: State<'_, AppState>,
+    per_platform: usize,
+) -> Res<std::collections::HashMap<i64, Vec<String>>> {
+    with_cache(&state, move |c| c.platform_covers(per_platform.min(12))).await
+}
+
 #[tauri::command]
 pub async fn search(state: State<'_, AppState>, query: String) -> Res<Vec<RomRow>> {
     with_cache(&state, move |c| c.search(&query, 200)).await
@@ -385,6 +405,7 @@ pub struct SettingsPatch {
     fullscreen: Option<bool>,
     log_level: Option<String>,
     web_gamepad: Option<bool>,
+    systems_view: Option<String>,
 }
 
 #[tauri::command]
@@ -413,6 +434,12 @@ pub fn update_settings(
         if let Some(v) = patch.web_gamepad {
             cfg.web_gamepad = v;
             state.input_paused.store(v, Ordering::Relaxed);
+        }
+        if let Some(v) = patch.systems_view {
+            if !["carousel", "list", "grid"].contains(&v.as_str()) {
+                return Err("unknown systems view".into());
+            }
+            cfg.systems_view = v;
         }
     }
     state.save_config();

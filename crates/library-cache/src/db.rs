@@ -2,7 +2,7 @@ use crate::Result;
 use romm_api::{Platform, Rom};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` holds how many have run.
@@ -384,6 +384,26 @@ impl Cache {
         Ok(rows)
     }
 
+    /// Up to `n` small cover paths per platform (most recently updated games first).
+    pub fn platform_covers(&self, n: usize) -> Result<HashMap<i64, Vec<String>>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT platform_id, cover_small FROM (
+               SELECT platform_id, cover_small,
+                      ROW_NUMBER() OVER (PARTITION BY platform_id ORDER BY updated_at DESC, id DESC) AS rn
+               FROM roms WHERE cover_small IS NOT NULL)
+             WHERE rn <= ?1",
+        )?;
+        let mut out: HashMap<i64, Vec<String>> = HashMap::new();
+        let rows = st.query_map([n as i64], |r| {
+            Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?))
+        })?;
+        for row in rows {
+            let (p, c) = row?;
+            out.entry(p).or_default().push(c);
+        }
+        Ok(out)
+    }
+
     pub fn rom_count(&self) -> Result<i64> {
         Ok(self
             .conn
@@ -469,6 +489,29 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn platform_covers_are_limited_per_platform() {
+        let mut c = Cache::open_in_memory().unwrap();
+        let with_cover = |id: i64, p: i64, updated: &str| -> Rom {
+            serde_json::from_value(json!({
+                "id": id, "platform_id": p, "name": format!("G{id}"), "fs_name": "g.bin",
+                "path_cover_small": format!("/c/{id}.png"), "updated_at": updated
+            }))
+            .unwrap()
+        };
+        c.upsert_roms(&[
+            with_cover(1, 1, "2026-01-01T00:00:00"),
+            with_cover(2, 1, "2026-03-01T00:00:00"),
+            with_cover(3, 1, "2026-02-01T00:00:00"),
+            with_cover(4, 2, "2026-01-01T00:00:00"),
+            rom(5, 2, "No cover"),
+        ])
+        .unwrap();
+        let covers = c.platform_covers(2).unwrap();
+        assert_eq!(covers[&1], ["/c/2.png", "/c/3.png"]);
+        assert_eq!(covers[&2], ["/c/4.png"]);
     }
 
     #[test]
