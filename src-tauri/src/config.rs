@@ -39,7 +39,8 @@ pub struct Config {
     pub retrodeck_roms: Option<String>,
     /// Systems screen layout: carousel, list or grid.
     pub systems_view: String,
-    /// Games screen layout per platform slug: list or grid (list when missing).
+    /// Games screen layout per platform slug: list, grid, covers or carousel (list when
+    /// missing).
     pub games_view: std::collections::BTreeMap<String, String>,
 }
 

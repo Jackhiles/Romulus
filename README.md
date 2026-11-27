@@ -23,8 +23,10 @@ for how it works.
    "Is executable").
 2. Start it, enter your RomM server address and approve the pairing code on your phone
    (or sign in with your username and password).
-3. Settings (☰) → **Add to Steam**. This closes Steam, adds one shortcut and starts Steam
-   again.
+3. Settings (☰) → **Add to Steam**. This closes Steam, adds one shortcut (with its library
+   artwork: capsule, banner, hero, logo and icon) and starts Steam again. Artwork you set
+   yourself in Steam is kept; a shortcut added by an older version gets the missing
+   images the next time Romulus starts.
 4. Back in Gaming Mode, start Romulus from Non-Steam in your library. Use the default
    gamepad layout (or "Gamepad" in Steam Input); Romulus reads the controller directly.
 
@@ -35,12 +37,12 @@ install it from Settings.
 
 | Button | Action |
 |---|---|
-| D-pad / left stick | Move. In a system's game list, left / right switch to the previous / next system |
+| D-pad / left stick | Move. In a system's game list, left / right switch to the previous / next system (up / down in the carousel) |
 | A | Open / select |
 | B | Back |
 | X | Sync library (systems screen), newest first / A–Z (games) |
 | Y | Search |
-| ⧉ (Select) | Change layout: carousel / list / grid (systems), list / grid (games, remembered per system) |
+| ⧉ (Select) | Change layout: carousel / list / grid (systems), list / grid / big covers / carousel (games, remembered per system) |
 | LB / RB | Page up / down; previous / next game on the detail page |
 | LT / RT | Jump to previous / next letter; on a game's page, switch between its versions |
 | RT (systems screen) | Surprise me: a random game (Select on its page picks another) |

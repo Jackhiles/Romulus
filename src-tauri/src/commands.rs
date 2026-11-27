@@ -236,10 +236,10 @@ pub async fn rom(state: State<'_, AppState>, id: i64) -> Res<Option<RomDetail>> 
     Ok(r.map(|(row, data)| RomDetail { row, data }))
 }
 
-/// Remember the games layout ("list" or "grid") for one platform.
+/// Remember the games layout for one platform.
 #[tauri::command]
 pub fn set_games_view(state: State<'_, AppState>, platform: String, view: String) -> Res<()> {
-    if !["list", "grid"].contains(&view.as_str()) {
+    if !["list", "grid", "covers", "carousel"].contains(&view.as_str()) {
         return Err("unknown games view".into());
     }
     lock(&state.config).games_view.insert(platform, view);

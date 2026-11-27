@@ -1,13 +1,17 @@
 <script lang="ts">
-  // A system's games (or search results) as a list with a detail panel, or as a cover
-  // grid with the focused game across the top. Handles moving the focus; the screen
-  // using it handles A, X, Y, Select and (in list view) left/right.
+  // A system's games (or search results) in one of four layouts:
+  //  - list: titles with a detail panel
+  //  - grid / covers: a cover grid (small or big covers), the focused game across the top
+  //  - carousel: one row of covers, the focused one large in the middle
+  // Handles moving the focus; the screen using it handles A, X, Y, Select, left/right
+  // in the list and up/down in the carousel.
   import { onDestroy } from 'svelte'
   import { music, type GamesView, type Rom } from '../lib/api'
   import { FocusedDetail } from '../lib/details.svelte'
   import { fileTags } from '../lib/format'
   import { device } from '../lib/play.svelte'
   import { jumpLetter, letterOf, page, step } from '../lib/grid'
+  import { around, flowOffset } from '../lib/views'
   import { onAction } from '../lib/input'
   import Backdrop from './Backdrop.svelte'
   import Cover from './Cover.svelte'
@@ -83,10 +87,33 @@
     letterTimer = setTimeout(() => (letter = null), 650)
   }
 
+  const clamp = (i: number) => Math.min(Math.max(i, 0), Math.max(roms.length - 1, 0))
+  const FLOW_PAGE = 5
+
   const off = onAction(({ action }) => {
     if (!active) return false
     const n = roms.length
-    const perPage = view === 'list' ? rows : cols * rows
+    if (view === 'carousel') {
+      switch (action) {
+        case 'left':
+        case 'right':
+          index = clamp(index + (action === 'right' ? 1 : -1))
+          return true
+        case 'up':
+          if (ontop) {
+            ontop()
+            return true
+          }
+          return false
+        case 'down':
+          return false
+        case 'lb':
+        case 'rb':
+          index = clamp(index + (action === 'rb' ? FLOW_PAGE : -FLOW_PAGE))
+          return true
+      }
+    }
+    const perPage = view === 'list' ? rows : view === 'carousel' ? FLOW_PAGE : cols * rows
     switch (action) {
       case 'up':
       case 'down':
@@ -111,7 +138,7 @@
           index = jumpLetter(roms.map((r) => r.title), index, action === 'rt' ? 1 : -1)
           showLetter()
         } else {
-          index = Math.min(Math.max(index + (action === 'rt' ? 3 : -3) * perPage, 0), Math.max(n - 1, 0))
+          index = clamp(index + (action === 'rt' ? 3 : -3) * perPage)
         }
         return true
     }
@@ -151,18 +178,57 @@
         <GameInfo title={rom.title} detail={focus.detail?.id === rom.id ? focus.detail : null} lines={6} />
       {/if}
     </div>
-  {:else}
-    <div class="top">
+  {:else if view === 'carousel'}
+    <div class="flow">
+      <div class="strip">
+        {#each around(index, roms.length, 5) as i (roms[i].id)}
+          {@const r = roms[i]}
+          {@const d = i - index}
+          <!-- svelte-ignore a11y_click_events_have_key_events -->
+          <div
+            class="card"
+            role="button"
+            tabindex="-1"
+            style:z-index={10 - Math.abs(d)}
+            style:transform="translate3d(calc(-50% + {flowOffset(d)}px), -50%, 0) scale({d === 0 ? 1 : 0.74})"
+            style:opacity={d === 0 ? 1 : Math.max(0.15, 0.75 - Math.abs(d) * 0.13)}
+            onclick={() => (d === 0 ? onopen(i) : (index = i))}
+          >
+            <Cover path={r.cover_large ?? r.cover_small} title={r.title} focused={d === 0 && active} />
+          </div>
+        {/each}
+        {#if roms.length}<div class="position">{index + 1} / {roms.length}</div>{/if}
+      </div>
       {#if rom}
-        <GameInfo title={rom.title} detail={focus.detail?.id === rom.id ? focus.detail : null} lines={2} />
+        <div class="caption">
+          <GameInfo title={rom.title} detail={focus.detail?.id === rom.id ? focus.detail : null} lines={2} />
+        </div>
+      {/if}
+    </div>
+  {:else}
+    {@const big = view === 'covers'}
+    <div class="top" class:slim={big}>
+      {#if rom}
+        <GameInfo title={rom.title} detail={focus.detail?.id === rom.id ? focus.detail : null} lines={big ? 0 : 2} />
       {/if}
     </div>
     <div class="grid">
-      <VirtualGrid items={roms} bind:index bind:cols bind:rows tileWidth={150} tileHeight={200} gap={20} onactivate={onopen}>
-        {#snippet tile(r: Rom, _i: number, focused: boolean)}
-          <Cover path={r.cover_small} title={r.title} focused={focused && active} />
-        {/snippet}
-      </VirtualGrid>
+      {#key big}
+        <VirtualGrid
+          items={roms}
+          bind:index
+          bind:cols
+          bind:rows
+          tileWidth={big ? 210 : 150}
+          tileHeight={big ? 280 : 200}
+          gap={big ? 26 : 20}
+          onactivate={onopen}
+        >
+          {#snippet tile(r: Rom, _i: number, focused: boolean)}
+            <Cover path={big ? (r.cover_large ?? r.cover_small) : r.cover_small} title={r.title} focused={focused && active} />
+          {/snippet}
+        </VirtualGrid>
+      {/key}
     </div>
   {/if}
 
@@ -278,8 +344,10 @@
     height: 200px;
   }
 
-  /* ---- grid view ---- */
-  .browser.view-grid {
+  /* ---- grid and covers views ---- */
+  .browser.view-grid,
+  .browser.view-covers,
+  .browser.view-carousel {
     flex-direction: column;
   }
   .top {
@@ -287,6 +355,57 @@
     flex: none;
     padding: 6px 44px 0;
     max-width: 900px;
+  }
+  .top.slim {
+    height: 92px;
+  }
+
+  /* ---- carousel view ---- */
+  .flow {
+    position: relative;
+    z-index: 1;
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .strip {
+    position: relative;
+    flex: 1;
+    min-height: 300px;
+    overflow: hidden;
+  }
+  .card {
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    width: 300px;
+    height: 400px;
+    transition:
+      transform 240ms cubic-bezier(0.2, 0.8, 0.2, 1),
+      opacity 240ms;
+    will-change: transform, opacity;
+  }
+  .caption {
+    flex: none;
+    position: relative;
+    height: 132px;
+    padding: 0 44px;
+    max-width: 900px;
+    width: 100%;
+    margin: 0 auto;
+    text-align: center;
+  }
+  .caption :global(.facts) {
+    justify-content: center;
+  }
+  .position {
+    position: absolute;
+    z-index: 20;
+    right: 44px;
+    top: 4px;
+    font-size: 13px;
+    color: var(--muted);
   }
   .grid {
     flex: 1;

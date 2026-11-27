@@ -10,6 +10,7 @@
   import { library } from '../lib/library.svelte'
   import { device } from '../lib/play.svelte'
   import { push, type Screen } from '../lib/nav.svelte'
+  import { GAMES_VIEW_LABEL, isGamesView, nextGamesView } from '../lib/views'
 
   let { entry = $bindable() }: { entry: Screen } = $props()
   // App only mounts this screen for a 'games' entry.
@@ -21,7 +22,11 @@
   // svelte-ignore state_referenced_locally
   let sort = $state<Sort>(g.sort ?? 'title')
   let view = $state<GamesView>('list')
-  let views: Record<string, GamesView> = {}
+  let views: Record<string, string> = {}
+  const viewFor = (slug: string): GamesView => {
+    const v = views[slug]
+    return isGamesView(v) ? v : 'list'
+  }
   let platforms: Platform[] = []
   // Collections mix systems, so their rows name the system.
   let slugOf = $state<Record<number, string>>({})
@@ -34,7 +39,7 @@
 
   api.settings().then((s) => {
     views = s.games_view ?? {}
-    view = views[g.platformSlug] ?? 'list'
+    view = viewFor(g.platformSlug)
   })
   systemsWithCollections(0).then((s) => (platforms = s.list))
 
@@ -65,7 +70,7 @@
     g.platformId = p.id
     g.platformName = p.name
     g.platformSlug = p.slug
-    view = views[p.slug] ?? 'list'
+    view = viewFor(p.slug)
   }
 
   function open(i: number) {
@@ -75,9 +80,13 @@
 
   const off = onAction(({ action }) => {
     switch (action) {
+      // Reached only when the browser doesn't use them: left/right in the list,
+      // up/down in the carousel.
       case 'left':
       case 'right':
-        switchSystem(action === 'right' ? 1 : -1)
+      case 'up':
+      case 'down':
+        switchSystem(action === 'right' || action === 'down' ? 1 : -1)
         return true
       case 'a':
         open(index)
@@ -87,7 +96,7 @@
         index = 0
         return true
       case 'select':
-        view = view === 'list' ? 'grid' : 'list'
+        view = nextGamesView(view)
         views[g.platformSlug] = view
         api.setGamesView(g.platformSlug, view).catch(() => {})
         return true
@@ -105,8 +114,9 @@
   const hints = $derived<[Action, string][]>([
     ['a', 'Details'],
     ...(view === 'list' ? ([['right', 'System']] as [Action, string][]) : []),
+    ...(view === 'carousel' ? ([['down', 'System']] as [Action, string][]) : []),
     ['x', sort === 'title' ? 'Newest first' : 'A–Z'],
-    ['select', view === 'list' ? 'Grid' : 'List'],
+    ['select', GAMES_VIEW_LABEL[nextGamesView(view)]],
     ['y', 'Search'],
     ['b', 'Back'],
   ])

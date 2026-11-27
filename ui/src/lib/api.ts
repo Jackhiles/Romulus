@@ -1,6 +1,7 @@
 // Typed wrappers around the Rust commands (src-tauri/src/commands.rs).
 import { convertFileSrc, invoke } from '@tauri-apps/api/core'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
+import type { GamesView } from './views'
 
 export interface Status {
   app_name: string
@@ -76,7 +77,7 @@ export interface Settings {
 }
 
 export type SystemsView = 'carousel' | 'list' | 'grid'
-export type GamesView = 'list' | 'grid'
+export type { GamesView } from './views'
 
 export type Sort = 'title' | 'newest'
 
