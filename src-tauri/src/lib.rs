@@ -6,6 +6,7 @@ pub mod config;
 mod games;
 mod input;
 mod logging;
+mod music;
 pub mod paths;
 mod secrets;
 mod state;
@@ -105,6 +106,8 @@ pub fn run() {
             commands::add_to_steam,
             commands::log_ui,
             achievements::achievements,
+            music::preview_music,
+            music::stop_music,
             bios::bios_status,
             bios::download_bios,
             games::retrodeck_status,

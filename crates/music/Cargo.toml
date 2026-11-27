@@ -1,0 +1,10 @@
+[package]
+name = "music"
+description = "Background game music for the focused game, with fades"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+tracing.workspace = true
+rodio = { version = "0.23", default-features = false, features = ["playback", "mp3", "vorbis", "flac", "wav"] }

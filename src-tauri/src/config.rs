@@ -20,6 +20,10 @@ pub struct Config {
     pub fullscreen: bool,
     /// Max size of the cover cache in MB.
     pub cover_cache_mb: u64,
+    /// Play music for the focused game.
+    pub music: bool,
+    /// Music volume, 0-100.
+    pub music_volume: u8,
     /// Sync saves with RomM before and after playing.
     pub save_sync: bool,
     /// Use WebKitGTK's DMA-BUF renderer (default; much faster, but a blank window on
@@ -49,6 +53,8 @@ impl Default for Config {
             cover_cache_mb: 1024,
             fast_renderer: true,
             save_sync: true,
+            music: true,
+            music_volume: 40,
             web_gamepad: false,
             last_run_version: None,
             retrodeck_roms: None,

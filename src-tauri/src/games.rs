@@ -546,6 +546,7 @@ pub async fn play_rom(
     }
 
     let warning = located.as_ref().and_then(|l| l.warning.clone());
+    crate::music::stop(&state);
     if let Err(e) = lock(&cache).mark_played_now(rom_id) {
         tracing::warn!("could not record last played: {e}");
     }

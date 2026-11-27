@@ -10,6 +10,7 @@
   import {
     achievements,
     api,
+    music,
     assetUrl,
     type Achievements,
     games,
@@ -39,6 +40,13 @@
   let starting = $state(false)
   let sync = $state<SaveSyncStatus | null>(null)
   let ra = $state<Achievements | null>(null)
+
+  // The game's music (kept if it was already playing from the list).
+  $effect(() => {
+    const want = id
+    const t = setTimeout(() => music.preview(want).catch(() => {}), 500)
+    return () => clearTimeout(t)
+  })
 
   $effect(() => {
     const want = id

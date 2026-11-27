@@ -10,7 +10,7 @@
   import Header from '../components/Header.svelte'
   import VirtualGrid from '../components/VirtualGrid.svelte'
   import VirtualList from '../components/VirtualList.svelte'
-  import { api, type Platform, type SystemsView } from '../lib/api'
+  import { api, music, type Platform, type SystemsView } from '../lib/api'
   import { APP_NAME } from '../lib/app'
   import { hueOf } from '../lib/format'
   import { page, step } from '../lib/grid'
@@ -107,6 +107,8 @@
     return false
   })
   onDestroy(off)
+  // The systems screen is quiet.
+  music.stop().catch(() => {})
 
   const NEXT_VIEW: Record<SystemsView, string> = { carousel: 'List', list: 'Grid', grid: 'Carousel' }
   const hints = $derived<[Action, string][]>([

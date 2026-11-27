@@ -66,6 +66,8 @@ export interface Settings {
   web_gamepad: boolean
   fast_renderer: boolean
   save_sync: boolean
+  music: boolean
+  music_volume: number
   systems_view: SystemsView
   games_view: Record<string, GamesView>
 }
@@ -237,6 +239,12 @@ export interface Achievements {
   points_total: number
   points_earned: number
   list: Achievement[]
+}
+
+/** Music for the focused game (debounce calls; the backend keeps a playing track). */
+export const music = {
+  preview: (romId: number) => invoke<boolean>('preview_music', { romId }),
+  stop: () => invoke<void>('stop_music'),
 }
 
 export const achievements = (romId: number) => invoke<Achievements | null>('achievements', { romId })

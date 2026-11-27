@@ -19,6 +19,7 @@ library-cache.workspace = true
 updater.workspace = true
 launcher.workspace = true
 sync.workspace = true
+music.workspace = true
 tauri = { version = "2", features = ["protocol-asset"] }
 tokio.workspace = true
 reqwest.workspace = true

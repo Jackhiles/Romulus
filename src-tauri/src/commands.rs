@@ -435,6 +435,8 @@ pub struct SettingsPatch {
     systems_view: Option<String>,
     fast_renderer: Option<bool>,
     save_sync: Option<bool>,
+    music: Option<bool>,
+    music_volume: Option<u8>,
 }
 
 #[tauri::command]
@@ -463,6 +465,16 @@ pub fn update_settings(
         if let Some(v) = patch.web_gamepad {
             cfg.web_gamepad = v;
             state.input_paused.store(v, Ordering::Relaxed);
+        }
+        if let Some(v) = patch.music {
+            cfg.music = v;
+            if !v {
+                crate::music::stop(&state);
+            }
+        }
+        if let Some(v) = patch.music_volume {
+            cfg.music_volume = v.min(100);
+            state.music.set_volume(cfg.music_volume as f32 / 100.0);
         }
         if let Some(v) = patch.save_sync {
             cfg.save_sync = v;

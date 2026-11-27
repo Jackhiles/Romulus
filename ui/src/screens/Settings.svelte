@@ -137,6 +137,12 @@
         run: () => push({ name: 'downloads' }),
       },
       { label: 'BIOS', value: 'Get BIOS files from RomM', run: () => push({ name: 'bios' }) },
+      { label: 'Game music', value: s.music ? 'On' : 'Off', cycle: () => patch({ music: !s.music }) },
+      {
+        label: 'Music volume',
+        value: `${s.music_volume}%`,
+        cycle: (d) => patch({ music_volume: Math.min(100, Math.max(0, s.music_volume + d * 10)) }),
+      },
       {
         label: 'Save sync',
         value: s.save_sync ? 'On · before and after playing' : 'Off',

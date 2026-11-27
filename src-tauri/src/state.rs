@@ -36,6 +36,9 @@ pub struct AppState {
     pub download_worker: AtomicBool,
     /// The running download: (rom id, bytes done, total).
     pub active_download: Mutex<Option<(i64, u64, u64)>>,
+    pub music: music::Player,
+    /// The game whose music is playing.
+    pub music_for: Mutex<Option<i64>>,
     /// Plain HTTP client for GitHub (updater).
     pub http: reqwest::Client,
 }
@@ -46,6 +49,7 @@ pub fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl AppState {
     pub fn new(paths: Paths, config: Config) -> Self {
+        let music_volume = config.music_volume as f32 / 100.0;
         let http = reqwest::Client::builder()
             .user_agent(app::user_agent())
             .connect_timeout(std::time::Duration::from_secs(15))
@@ -64,6 +68,8 @@ impl AppState {
             queue: Mutex::new(Default::default()),
             download_worker: AtomicBool::new(false),
             active_download: Mutex::new(None),
+            music: music::Player::new(music_volume),
+            music_for: Mutex::new(None),
             http,
         }
     }

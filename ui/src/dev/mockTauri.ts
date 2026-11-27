@@ -32,6 +32,8 @@ const settings = {
   web_gamepad: false,
   fast_renderer: true,
   save_sync: true,
+  music: true,
+  music_volume: 40,
   systems_view: 'carousel',
   games_view: {} as Record<string, string>,
 }
@@ -102,6 +104,8 @@ const handlers: Record<string, (a: any) => unknown> = {
       ? lib.roms.filter((r) => installed.has(r.id)).map(row)
       : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
   downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
+  preview_music: () => false,
+  stop_music: () => null,
   achievements: () => ({ total: 3, earned: 1, earned_hardcore: 0, points_total: 30, points_earned: 10, list: [
     { title: 'Piece Be With You', description: 'Clear the first area', points: 10, badge: null, earned: true, earned_at: '2026-10-09 02:54:14' },
     { title: 'Wise Guy', description: 'Talk to everyone', points: 10, badge: null, earned: false, earned_at: null },

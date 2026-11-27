@@ -3,7 +3,7 @@
   // grid with the focused game across the top. Handles moving the focus; the screen
   // using it handles A, X, Y, Select and (in list view) left/right.
   import { onDestroy } from 'svelte'
-  import type { GamesView, Rom } from '../lib/api'
+  import { music, type GamesView, type Rom } from '../lib/api'
   import { FocusedDetail } from '../lib/details.svelte'
   import { fileTags } from '../lib/format'
   import { device } from '../lib/play.svelte'
@@ -61,6 +61,15 @@
     focus.set(rom?.id)
   })
 
+  // Music for the focused game, once focus has rested a moment.
+  let musicTimer: ReturnType<typeof setTimeout> | undefined
+  $effect(() => {
+    const id = rom?.id
+    clearTimeout(musicTimer)
+    if (id === undefined || !active) return
+    musicTimer = setTimeout(() => music.preview(id).catch(() => {}), 1200)
+  })
+
   function showLetter() {
     letter = letterOf(roms[index]?.title ?? '')
     clearTimeout(letterTimer)
@@ -103,6 +112,7 @@
   })
   onDestroy(() => {
     off()
+    clearTimeout(musicTimer)
     focus.destroy()
     clearTimeout(letterTimer)
   })
