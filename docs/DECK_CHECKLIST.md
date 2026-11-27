@@ -10,8 +10,8 @@ each, and use Settings → Copy debug info for anything that fails.
 - [ ] Pairing: the QR code opens RomM's approval page on your phone and approving signs
       the Deck in. (Your server's web UI must have the `/pair/device` page, which is in
       RomM 5.x.)
-- [ ] Settings → Account says "credentials in the system keyring" in Desktop Mode. Note
-      what it says in Gaming Mode after a restart.
+- [ ] After pairing in Desktop Mode, Romulus is still signed in when started in Gaming
+      Mode.
 - [ ] Settings → Add to Steam closes and restarts Steam, and Romulus appears under
       Non-Steam.
 
@@ -39,13 +39,6 @@ ROMULUS_DMABUF=1 ~/Applications/Romulus-x86_64.AppImage
 
 - [ ] Note whether scrolling feels better or worse, and whether the window is blank.
 
-## RetroDECK on the SD card (for Phase 2)
+## RetroDECK
 
-Please paste the output of:
-
-```sh
-ls ~/.var/app/net.retrodeck.retrodeck/config/retrodeck/
-grep -E '^(rdhome|roms_folder|bios_folder|saves_folder|states_folder)' ~/.var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.cfg
-cat ~/.var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.json 2>/dev/null | head -40
-ls /run/media/
-```
+Collected over SSH; see `docs/DECK_FINDINGS.md`.

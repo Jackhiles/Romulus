@@ -36,8 +36,8 @@ the RomM server. It replaces decky-romm-sync, which is slow to sync and a bit cl
 - Talk directly to the RomM REST API. Endpoints are taken from the server's OpenAPI schema,
   never guessed. A snapshot for RomM 5.4.1 is in `docs/reference/`, with notes in
   `docs/ROMM_API.md`. At runtime, read `/api/heartbeat` to check the server version.
-- Config: server URL and credentials. Tokens are stored in the system keyring, not in
-  plaintext.
+- Config: server URL and credentials. Tokens are stored in a file readable only by the
+  user (the system keyring is not available in Gaming Mode).
 - Needs: platforms, ROM list per platform, ROM detail and metadata, covers and screenshots,
   file download, saves, states, firmware/BIOS, and RetroAchievements data if the server
   exposes it.

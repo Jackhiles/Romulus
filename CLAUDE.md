@@ -2,6 +2,22 @@
 
 Controller-first RomM client for the Steam Deck. Read `docs/SPEC.md` (what) and
 `docs/ARCHITECTURE.md` (how) before changing anything substantial.
+`docs/DECK_FINDINGS.md` records what the real Deck, RetroDECK and RomM server look like.
+
+## Testing on the Deck
+
+The developer's Deck is reachable as `ssh deck@192.168.2.4` (key auth). Use it to check
+paths and behaviour instead of guessing. Read only, unless the user asked for a change:
+never touch files under the RetroDECK folders, Steam's files or `~/.config/romulus`.
+Romulus' token is in `~/.config/romulus/credentials.json` on the Deck; use it there
+(or pass it through an environment variable) and never print it or copy it to a file.
+
+## Building on Windows
+
+`D:\Documents` is protected (Controlled Folder Access), which breaks tools that write a
+temporary file and rename it: set `CARGO_TARGET_DIR` to a folder outside Documents, and
+edit files in place. The Tauri app crate only builds on Linux (CI); the library crates and
+the UI build and test on Windows.
 
 ## Ground rules
 

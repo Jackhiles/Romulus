@@ -46,7 +46,7 @@ install it from Settings.
 | Library cache | `~/.local/share/romulus/library-*.db` |
 | Covers | `~/.cache/romulus/covers/` (pruned at 1 GB) |
 | Logs | `~/.local/state/romulus/logs/` |
-| Credentials | System keyring, or `~/.config/romulus/credentials.json` (mode 600) when no keyring is available |
+| Credentials | `~/.config/romulus/credentials.json` (readable only by you) |
 
 ## Development
 

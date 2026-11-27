@@ -21,7 +21,7 @@ Status: **Phase 1 built** (approved 2026-11-26). Phases 2-4 below are still plan
 │ sync          save/state/BIOS sync, per-system adapters, conflict engine, backups         │
 │ updater       GitHub Releases self-update for the AppImage (KlikCore2 pattern)            │
 │ input         gilrs gamepad reader, forwards normalized button events to the UI           │
-│ platform      paths (XDG), keyring, logging, Steam shortcut (one, for Romulus itself)     │
+│ platform      paths (XDG), credentials, logging, Steam shortcut (one, for Romulus itself) │
 └────────────────────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -135,12 +135,14 @@ thumbnail size, so nothing is resized.
 
 ## Launcher (Phase 2)
 
-- RetroDECK detection: read RetroDECK's config file
-  (`~/.var/app/net.retrodeck.retrodeck/config/retrodeck/`, exact file and keys to be checked
-  on a Deck) for `rdhome`/roms/bios/saves/states paths. Fall back to `~/retrodeck`, then
-  SD-card mounts under `/run/media/`. The user can override this in settings.
-- Folder per platform: RomM `fs_slug` → RetroDECK system folder, via a mapping table checked
-  on a Deck (the names mostly match ES-DE's: `snes`, `psx`, `gba`, ...).
+- RetroDECK detection: read `paths` from
+  `~/.var/app/net.retrodeck.retrodeck/config/retrodeck/retrodeck.json` (`roms_path`,
+  `bios_path`, `saves_path`, `states_path`; checked on a Deck, see `docs/DECK_FINDINGS.md`).
+  Fall back to `~/retrodeck`, then SD-card mounts under `/run/media/`. The user can
+  override this in settings. Card labels contain spaces.
+- Folder per platform: RomM `fs_slug` → RetroDECK system folder. Most names match; the
+  mapping table covers the rest (`dc`→`dreamcast`, `ngc`→`gc`, `3ds`→`n3ds`), and platforms
+  with no folder (`win`, `ps4`) can be browsed but not played.
 - Download to `<roms>/<system>/<file>.part`, resumable with HTTP Range if the server
   supports it, renamed on success, hash-checked against `rom_files.sha1` when present.
   `statvfs` checks free space first.
@@ -203,9 +205,9 @@ are a non-goal.
 - **Config**: `~/.config/romulus/config.toml` (server URL, RetroDECK path override, audio,
   update channel). `APP_NAME` / `APP_ID` constants in one place (`src-tauri/src/app.rs` and
   `ui/src/lib/app.ts`, generated from one source).
-- **Secrets**: `keyring` crate (Secret Service). Risk: in Gaming Mode the Secret Service
-  daemon (KWallet) may be locked or missing. Fallback: a token file with mode `0600` in the
-  config dir, with a visible notice in settings. To verify on a Deck in Phase 1.
+- **Secrets**: a token file with mode `0600` in the config dir. Checked on a Deck: KWallet
+  only runs in Desktop Mode, so credentials stored there looked signed out in Gaming Mode.
+  The `keyring` crate is kept only to move 0.1.0's keyring entries into the file.
 - **Logging**: `tracing` + `tracing-appender`, daily rolling file in
   `~/.local/state/romulus/logs/`, level set in settings. "Copy debug info" copies version,
   SteamOS version, RomM version, RetroDECK paths and the last 200 log lines (tokens redacted)
@@ -227,7 +229,7 @@ needs hardware: see `docs/DECK_CHECKLIST.md`.
 4. **romm-api crate**: heartbeat, device-pairing auth, password auth, token refresh, platforms,
    roms (paged, `updated_after`), identifiers, rom detail, cover fetch. Mock-server tests.
    Test that every path we call exists in the OpenAPI snapshot.
-5. **Keyring storage** with the 0600 file fallback.
+5. **Credential storage** (0600 file; see Secrets).
 6. **library-cache crate**: schema + migrations, upserts, deletion by identifiers, cursor,
    FTS5 search, cover cache with LRU. Tests with an in-memory DB and the mock server.
 7. **UI shell**: screen stack, FocusManager, footer button hints, toasts, theme.
