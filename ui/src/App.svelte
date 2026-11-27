@@ -13,6 +13,7 @@
   import Platforms from './screens/Platforms.svelte'
   import Search from './screens/Search.svelte'
   import AchievementsScreen from './screens/Achievements.svelte'
+  import Backups from './screens/Backups.svelte'
   import Bios from './screens/Bios.svelte'
   import Downloads from './screens/Downloads.svelte'
   import Settings from './screens/Settings.svelte'
@@ -88,6 +89,8 @@
         <Search bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'achievements'}
         <AchievementsScreen romId={top.romId} title={top.title} />
+      {:else if top.name === 'backups'}
+        <Backups />
       {:else if top.name === 'downloads'}
         <Downloads />
       {:else if top.name === 'bios'}

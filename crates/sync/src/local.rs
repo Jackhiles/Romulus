@@ -203,6 +203,78 @@ pub fn backup(spec: &SaveSpec, backups: &Path, label: &str) -> std::io::Result<O
     }
 }
 
+fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(to)?;
+    for e in std::fs::read_dir(from)? {
+        let e = e?;
+        let dest = to.join(e.file_name());
+        if e.file_type()?.is_dir() {
+            copy_dir(&e.path(), &dest)?;
+        } else {
+            std::fs::copy(e.path(), dest)?;
+        }
+    }
+    Ok(())
+}
+
+/// Put a backup (made by [`backup`]) back. The current save is backed up first into
+/// `<backups>/<now>-before-restore`. Returns that backup's folder, if one was made.
+pub fn restore(
+    spec: &SaveSpec,
+    from: &Path,
+    backups: &Path,
+    now: &str,
+) -> std::io::Result<Option<PathBuf>> {
+    // Check the backup fits this save before touching anything.
+    match spec {
+        SaveSpec::File { path } => {
+            let name = path.file_name().unwrap_or_default();
+            if !from.join(name).is_file() {
+                return Err(std::io::Error::other(
+                    "this backup isn't a save of this game",
+                ));
+            }
+        }
+        SaveSpec::CardFolders { prefix, .. } => {
+            let ok = std::fs::read_dir(from)?
+                .flatten()
+                .any(|e| e.file_name().to_string_lossy().starts_with(prefix.as_str()));
+            if !ok {
+                return Err(std::io::Error::other(
+                    "this backup isn't a save of this game",
+                ));
+            }
+        }
+    }
+    let label = format!("{now}-before-restore");
+    let made = backup(spec, backups, &label)?.map(|_| backups.join(&label));
+    match spec {
+        SaveSpec::File { path } => {
+            let name = path.file_name().unwrap_or_default();
+            apply(spec, &std::fs::read(from.join(name))?)?;
+        }
+        SaveSpec::CardFolders { card_dir, prefix } => {
+            for e in std::fs::read_dir(card_dir)? {
+                let e = e?;
+                if e.file_name().to_string_lossy().starts_with(prefix.as_str())
+                    && e.file_type()?.is_dir()
+                {
+                    std::fs::remove_dir_all(e.path())?;
+                }
+            }
+            for e in std::fs::read_dir(from)? {
+                let e = e?;
+                if e.file_name().to_string_lossy().starts_with(prefix.as_str())
+                    && e.file_type()?.is_dir()
+                {
+                    copy_dir(&e.path(), &card_dir.join(e.file_name()))?;
+                }
+            }
+        }
+    }
+    Ok(made)
+}
+
 fn safe_entry(name: &str, prefix: &str) -> Option<PathBuf> {
     let p = Path::new(name);
     let mut comps = p.components();
@@ -343,6 +415,56 @@ mod tests {
         assert_eq!(
             std::fs::read(d.path().join("backups/x/BASLUS-21008Opt/katamari_save01")).unwrap(),
             b"more progress"
+        );
+    }
+
+    #[test]
+    fn restore_puts_a_backup_back_and_keeps_the_current_save() {
+        let d = tempfile::tempdir().unwrap();
+        let backups = d.path().join("backups");
+        // File saves.
+        let spec = SaveSpec::File {
+            path: d.path().join("saves/psx/Game.srm"),
+        };
+        apply(&spec, b"OLD").unwrap();
+        let b = backup(&spec, &backups, "t1-before-download")
+            .unwrap()
+            .unwrap();
+        apply(&spec, b"NEW").unwrap();
+        restore(&spec, b.parent().unwrap(), &backups, "t2").unwrap();
+        assert_eq!(
+            std::fs::read(d.path().join("saves/psx/Game.srm")).unwrap(),
+            b"OLD"
+        );
+        assert_eq!(
+            std::fs::read(backups.join("t2-before-restore/Game.srm")).unwrap(),
+            b"NEW"
+        );
+
+        // Card folders.
+        let cardd = d.path().join("Memcard.ps2");
+        card(&cardd);
+        let cspec = SaveSpec::CardFolders {
+            card_dir: cardd.clone(),
+            prefix: "BASLUS-21008".into(),
+        };
+        let cb = backup(&cspec, &backups, "c1").unwrap().unwrap();
+        std::fs::write(cardd.join("BASLUS-21008Opt/katamari_save01"), b"newer").unwrap();
+        restore(&cspec, &cb, &backups, "c2").unwrap();
+        assert_eq!(
+            std::fs::read(cardd.join("BASLUS-21008Opt/katamari_save01")).unwrap(),
+            b"save1"
+        );
+        assert_eq!(
+            std::fs::read(cardd.join("BASLUS-20370Save/data")).unwrap(),
+            b"other game"
+        );
+
+        // A backup of another game is refused and nothing changes.
+        assert!(restore(&cspec, &backups.join("t1-before-download"), &backups, "c3").is_err());
+        assert_eq!(
+            std::fs::read(cardd.join("BASLUS-21008Opt/katamari_save01")).unwrap(),
+            b"save1"
         );
     }
 

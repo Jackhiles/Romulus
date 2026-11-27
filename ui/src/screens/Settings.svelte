@@ -137,6 +137,7 @@
         run: () => push({ name: 'downloads' }),
       },
       { label: 'BIOS', value: 'Get BIOS files from RomM', run: () => push({ name: 'bios' }) },
+      { label: 'Save backups', value: 'Saves Romulus replaced; restore one', run: () => push({ name: 'backups' }) },
       { label: 'Game music', value: s.music ? 'On' : 'Off', cycle: () => patch({ music: !s.music }) },
       {
         label: 'Music volume',

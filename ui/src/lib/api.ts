@@ -248,6 +248,17 @@ export const music = {
   stop: () => invoke<void>('stop_music'),
 }
 
+export interface GameBackups {
+  rom_id: number
+  title: string
+  versions: { label: string }[]
+}
+
+export const backups = {
+  list: () => invoke<GameBackups[]>('save_backups'),
+  restore: (romId: number, label: string) => invoke<void>('restore_backup', { romId, label }),
+}
+
 export const achievements = (romId: number) => invoke<Achievements | null>('achievements', { romId })
 
 export type BiosState = 'present' | 'missing' | 'different' | 'unsupported'

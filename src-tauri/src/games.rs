@@ -820,3 +820,77 @@ pub async fn report_play_sessions(client: &Client, cache: &Mutex<Cache>) {
         );
     }
 }
+
+#[derive(Serialize)]
+pub struct BackupVersion {
+    /// Folder name: "<time>-<reason>".
+    label: String,
+}
+
+#[derive(Serialize)]
+pub struct GameBackups {
+    rom_id: i64,
+    title: String,
+    /// Newest first.
+    versions: Vec<BackupVersion>,
+}
+
+/// Save backups Romulus made, per game.
+#[tauri::command]
+pub async fn save_backups(state: State<'_, AppState>) -> Res<Vec<GameBackups>> {
+    let (_, cache) = session_parts(&state).await?;
+    let root = state.paths.data_dir.join("backups");
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(&root).into_iter().flatten().flatten() {
+        let Ok(rom_id) = e.file_name().to_string_lossy().parse::<i64>() else {
+            continue;
+        };
+        let mut versions: Vec<BackupVersion> = std::fs::read_dir(e.path())
+            .into_iter()
+            .flatten()
+            .flatten()
+            .filter(|v| v.path().is_dir())
+            .map(|v| BackupVersion {
+                label: v.file_name().to_string_lossy().into_owned(),
+            })
+            .collect();
+        if versions.is_empty() {
+            continue;
+        }
+        versions.sort_by(|a, b| b.label.cmp(&a.label));
+        let title = lock(&cache)
+            .rom(rom_id)
+            .ok()
+            .flatten()
+            .map(|(r, _)| r.title)
+            .unwrap_or_else(|| format!("Game {rom_id}"));
+        out.push(GameBackups {
+            rom_id,
+            title,
+            versions,
+        });
+    }
+    out.sort_by_key(|g| g.title.to_lowercase());
+    Ok(out)
+}
+
+/// Put a backed-up save back (the current one is backed up first). The game must be on
+/// the Deck, since that decides where its save lives.
+#[tauri::command]
+pub async fn restore_backup(state: State<'_, AppState>, rom_id: i64, label: String) -> Res<()> {
+    if label.contains(['/', char::from(92)]) || label.starts_with('.') {
+        return Err("bad backup name".into());
+    }
+    let (_, cache) = session_parts(&state).await?;
+    let inst =
+        record(&cache, rom_id).ok_or("download the game first; its save location depends on it")?;
+    let game = save_location(&state, &cache, &inst)?;
+    let dir = state
+        .paths
+        .data_dir
+        .join("backups")
+        .join(rom_id.to_string());
+    sync::local::restore(&game.spec, &dir.join(&label), &dir, &sync::run::stamp()).map_err(err)?;
+    tracing::info!("restored save backup {label} for rom {rom_id}");
+    Ok(())
+}

@@ -47,7 +47,8 @@ pub enum Outcome {
     Conflict(ConflictInfo),
 }
 
-fn stamp() -> String {
+/// A sortable timestamp for backup folder names.
+pub fn stamp() -> String {
     let t = OffsetDateTime::now_utc();
     format!(
         "{:04}-{:02}-{:02}_{:02}-{:02}-{:02}",

@@ -119,6 +119,8 @@ pub fn run() {
             games::downloads,
             games::remove_rom,
             games::play_rom,
+            games::save_backups,
+            games::restore_backup,
             games::save_sync_status,
             commands::quit,
         ])

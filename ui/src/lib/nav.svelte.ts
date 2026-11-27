@@ -18,6 +18,7 @@ export type Screen = Saved &
     | { name: 'settings' }
     | { name: 'bios' }
     | { name: 'downloads' }
+    | { name: 'backups' }
     | { name: 'achievements'; romId: number; title: string }
   )
 
