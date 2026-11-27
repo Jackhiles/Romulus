@@ -122,92 +122,231 @@ pub async fn installed_ids(state: State<'_, AppState>) -> Res<Vec<i64>> {
 #[derive(Serialize, Clone)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 enum DownloadEvent {
+    Queued { rom_id: i64, position: usize },
     Progress { rom_id: i64, done: u64, total: u64 },
     Done { rom_id: i64 },
     Cancelled { rom_id: i64 },
     Failed { rom_id: i64, message: String },
 }
 
-/// Download a game in the background. Progress arrives as `download` events.
+/// Queue a game for download. Downloads run one at a time, in order, and continue after
+/// a restart. Progress arrives as `download` events.
 #[tauri::command]
 pub async fn download_rom(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -> Res<()> {
-    let (client, cache) = session_parts(&state).await?;
-    let rd = retrodeck(&state).ok_or("RetroDECK was not found")?;
-    let cancel = Arc::new(AtomicBool::new(false));
+    retrodeck(&state).ok_or("RetroDECK was not found")?;
+    let (_, cache) = session_parts(&state).await?;
+    enqueue(&app, &state, &cache, rom_id);
+    Ok(())
+}
+
+fn enqueue(app: &AppHandle, state: &AppState, cache: &Mutex<Cache>, rom_id: i64) {
     {
         let mut d = lock(&state.downloads);
         if d.contains_key(&rom_id) {
-            return Ok(());
+            return;
         }
-        d.insert(rom_id, cancel.clone());
+        d.insert(rom_id, Arc::new(AtomicBool::new(false)));
     }
+    if let Err(e) = lock(cache).queue_download(rom_id) {
+        tracing::warn!("could not save the download queue: {e}");
+    }
+    let position = {
+        let mut q = lock(&state.queue);
+        q.push_back(rom_id);
+        q.len()
+    };
+    let _ = app.emit("download", DownloadEvent::Queued { rom_id, position });
+    // Start the worker unless one is running (it clears the flag under the queue lock
+    // when it finds the queue empty, so a game queued meanwhile is never stranded).
+    if !state.download_worker.swap(true, Ordering::SeqCst) {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move { download_worker(app).await });
+    }
+}
+
+async fn download_worker(app: AppHandle) {
+    loop {
+        let st = app.state::<AppState>();
+        let next = {
+            let mut q = lock(&st.queue);
+            let n = q.pop_front();
+            if n.is_none() {
+                st.download_worker.store(false, Ordering::SeqCst);
+            }
+            n
+        };
+        let Some(rom_id) = next else { return };
+        // Cancelled while it was waiting.
+        let Some(cancel) = lock(&st.downloads).get(&rom_id).cloned() else {
+            continue;
+        };
+        let event = run_download(&app, rom_id, &cancel).await;
+        lock(&st.downloads).remove(&rom_id);
+        *lock(&st.active_download) = None;
+        if let Ok((_, cache)) = session_parts(&st).await {
+            let _ = lock(&cache).unqueue_download(rom_id);
+        }
+        let _ = app.emit("download", event);
+    }
+}
+
+async fn run_download(app: &AppHandle, rom_id: i64, cancel: &AtomicBool) -> DownloadEvent {
+    let st = app.state::<AppState>();
+    let Ok((client, cache)) = session_parts(&st).await else {
+        return DownloadEvent::Failed {
+            rom_id,
+            message: "not signed in".into(),
+        };
+    };
+    let Some(rd) = retrodeck(&st) else {
+        return DownloadEvent::Failed {
+            rom_id,
+            message: "RetroDECK was not found".into(),
+        };
+    };
     let slug = lock(&cache)
         .rom(rom_id)
         .ok()
         .flatten()
         .and_then(|(_, j)| j["platform_slug"].as_str().map(str::to_string))
         .unwrap_or_default();
-
-    tauri::async_runtime::spawn(async move {
-        let progress_app = app.clone();
-        let last = Mutex::new(Instant::now() - Duration::from_secs(1));
-        let result: launcher::Result<Installed> = async {
-            let files = client.rom_files(rom_id).await?;
-            let folder = launcher::systems::folder_for(&rd.roms, &files.platform_fs_slug, &slug)
-                .ok_or_else(|| launcher::Error::NoSystemFolder(files.platform_fs_slug.clone()))?;
-            let system_dir = rd.roms.join(folder);
-            let plan = launcher::plan(&files, &system_dir)?;
-            if launcher::install::is_installed(&plan) {
-                tracing::info!("rom {rom_id} is already on the device");
-                return Ok(launcher::install::installed_record(&plan, &system_dir));
-            }
-            launcher::install(&client, &plan, &system_dir, &cancel, |done, total| {
-                let mut l = last.lock().unwrap_or_else(|e| e.into_inner());
-                if l.elapsed() >= Duration::from_millis(250) || done == total {
-                    *l = Instant::now();
-                    let _ = progress_app.emit(
-                        "download",
-                        DownloadEvent::Progress {
-                            rom_id,
-                            done,
-                            total,
-                        },
-                    );
-                }
-            })
-            .await
+    *lock(&st.active_download) = Some((rom_id, 0, 0));
+    let last = Mutex::new(Instant::now() - Duration::from_secs(1));
+    let result: launcher::Result<Installed> = async {
+        let files = client.rom_files(rom_id).await?;
+        let folder = launcher::systems::folder_for(&rd.roms, &files.platform_fs_slug, &slug)
+            .ok_or_else(|| launcher::Error::NoSystemFolder(files.platform_fs_slug.clone()))?;
+        let system_dir = rd.roms.join(folder);
+        let plan = launcher::plan(&files, &system_dir)?;
+        if launcher::install::is_installed(&plan) {
+            tracing::info!("rom {rom_id} is already on the device");
+            return Ok(launcher::install::installed_record(&plan, &system_dir));
         }
-        .await;
-
-        let st = app.state::<AppState>();
-        lock(&st.downloads).remove(&rom_id);
-        let event = match result {
-            Ok(inst) => match serde_json::to_string(&inst).map_err(err).and_then(|j| {
-                lock(&cache)
-                    .set_install(rom_id, &j, inst.size_bytes)
-                    .map_err(err)
-            }) {
-                Ok(()) => DownloadEvent::Done { rom_id },
-                Err(e) => DownloadEvent::Failed { rom_id, message: e },
-            },
-            Err(launcher::Error::Cancelled) => DownloadEvent::Cancelled { rom_id },
-            Err(e) => {
-                tracing::warn!("download of rom {rom_id} failed: {e}");
-                DownloadEvent::Failed {
-                    rom_id,
-                    message: e.to_string(),
-                }
+        launcher::install(&client, &plan, &system_dir, cancel, |done, total| {
+            *lock(&st.active_download) = Some((rom_id, done, total));
+            let mut l = last.lock().unwrap_or_else(|e| e.into_inner());
+            if l.elapsed() >= Duration::from_millis(250) || done == total {
+                *l = Instant::now();
+                let _ = app.emit(
+                    "download",
+                    DownloadEvent::Progress {
+                        rom_id,
+                        done,
+                        total,
+                    },
+                );
             }
-        };
-        let _ = app.emit("download", event);
-    });
+        })
+        .await
+    }
+    .await;
+    match result {
+        Ok(inst) => match serde_json::to_string(&inst).map_err(err).and_then(|j| {
+            lock(&cache)
+                .set_install(rom_id, &j, inst.size_bytes)
+                .map_err(err)
+        }) {
+            Ok(()) => DownloadEvent::Done { rom_id },
+            Err(e) => DownloadEvent::Failed { rom_id, message: e },
+        },
+        Err(launcher::Error::Cancelled) => DownloadEvent::Cancelled { rom_id },
+        Err(e) => {
+            tracing::warn!("download of rom {rom_id} failed: {e}");
+            DownloadEvent::Failed {
+                rom_id,
+                message: e.to_string(),
+            }
+        }
+    }
+}
+
+/// Stop a download: a waiting one leaves the queue; a running one stops and keeps its
+/// partial file, so downloading again continues where it was.
+#[tauri::command]
+pub async fn cancel_download(app: AppHandle, state: State<'_, AppState>, rom_id: i64) -> Res<()> {
+    let waiting = {
+        let mut q = lock(&state.queue);
+        let before = q.len();
+        q.retain(|id| *id != rom_id);
+        q.len() != before
+    };
+    if waiting {
+        lock(&state.downloads).remove(&rom_id);
+        if let Ok((_, cache)) = session_parts(&state).await {
+            let _ = lock(&cache).unqueue_download(rom_id);
+        }
+        let _ = app.emit("download", DownloadEvent::Cancelled { rom_id });
+    } else if let Some(c) = lock(&state.downloads).get(&rom_id) {
+        c.store(true, Ordering::Relaxed);
+    }
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct DownloadItem {
+    rom_id: i64,
+    title: String,
+    platform: String,
+    /// "active" or "queued".
+    state: &'static str,
+    done: u64,
+    total: u64,
+}
+
+/// The running download, then the queue in order.
 #[tauri::command]
-pub fn cancel_download(state: State<'_, AppState>, rom_id: i64) {
-    if let Some(c) = lock(&state.downloads).get(&rom_id) {
-        c.store(true, Ordering::Relaxed);
+pub async fn downloads(state: State<'_, AppState>) -> Res<Vec<DownloadItem>> {
+    let (_, cache) = session_parts(&state).await?;
+    let active = *lock(&state.active_download);
+    let queued: Vec<i64> = lock(&state.queue).iter().copied().collect();
+    let c = lock(&cache);
+    let item = |id: i64, state: &'static str, done: u64, total: u64| {
+        let (title, platform) = c
+            .rom(id)
+            .ok()
+            .flatten()
+            .map(|(r, j)| {
+                (
+                    r.title,
+                    j["platform_display_name"]
+                        .as_str()
+                        .unwrap_or_default()
+                        .to_string(),
+                )
+            })
+            .unwrap_or_else(|| (format!("Game {id}"), String::new()));
+        DownloadItem {
+            rom_id: id,
+            title,
+            platform,
+            state,
+            done,
+            total,
+        }
+    };
+    let mut out = Vec::new();
+    if let Some((id, done, total)) = active {
+        out.push(item(id, "active", done, total));
+    }
+    out.extend(queued.into_iter().map(|id| item(id, "queued", 0, 0)));
+    Ok(out)
+}
+
+/// Put downloads that were queued or running when Romulus last closed back in the queue.
+pub async fn resume_downloads(app: &AppHandle) {
+    let st = app.state::<AppState>();
+    let Ok((_, cache)) = session_parts(&st).await else {
+        return;
+    };
+    if retrodeck(&st).is_none() {
+        return;
+    }
+    let ids = lock(&cache).queued_downloads().unwrap_or_default();
+    if !ids.is_empty() {
+        tracing::info!("resuming {} queued download(s)", ids.len());
+    }
+    for id in ids {
+        enqueue(app, &st, &cache, id);
     }
 }
 

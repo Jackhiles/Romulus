@@ -71,6 +71,9 @@ pub fn run() {
                         tracing::error!("could not open library for {server}: {e}");
                     }
                 });
+                // Downloads that were waiting or running when Romulus closed.
+                let h = handle.clone();
+                tauri::async_runtime::spawn(async move { games::resume_downloads(&h).await });
             }
             Ok(())
         })
@@ -107,6 +110,7 @@ pub fn run() {
             games::installed_ids,
             games::download_rom,
             games::cancel_download,
+            games::downloads,
             games::remove_rom,
             games::play_rom,
             games::save_sync_status,

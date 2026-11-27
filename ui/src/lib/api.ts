@@ -183,6 +183,7 @@ export type InstallStatus =
   | { state: 'unavailable'; reason: string }
 
 export type DownloadEvent =
+  | { stage: 'queued'; rom_id: number; position: number }
   | { stage: 'progress'; rom_id: number; done: number; total: number }
   | { stage: 'done'; rom_id: number }
   | { stage: 'cancelled'; rom_id: number }
@@ -192,6 +193,15 @@ export type GameEvent =
   | { stage: 'started'; rom_id: number }
   | { stage: 'ended'; rom_id: number; duration_ms: number; save: string | null }
   | { stage: 'failed'; rom_id: number; message: string }
+
+export interface DownloadItem {
+  rom_id: number
+  title: string
+  platform: string
+  state: 'active' | 'queued'
+  done: number
+  total: number
+}
 
 export type SaveChoice = 'keep_local' | 'use_server'
 
@@ -232,6 +242,7 @@ export const games = {
   installedIds: () => invoke<number[]>('installed_ids'),
   download: (romId: number) => invoke<void>('download_rom', { romId }),
   cancel: (romId: number) => invoke<void>('cancel_download', { romId }),
+  downloads: () => invoke<DownloadItem[]>('downloads'),
   remove: (romId: number) => invoke<void>('remove_rom', { romId }),
   play: (romId: number, choice?: SaveChoice) => invoke<PlayStart>('play_rom', { romId, choice: choice ?? null }),
   saveSyncStatus: (romId: number) => invoke<SaveSyncStatus | null>('save_sync_status', { romId }),

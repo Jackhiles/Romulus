@@ -30,6 +30,12 @@ pub struct AppState {
     pub downloads: Mutex<std::collections::HashMap<i64, Arc<AtomicBool>>>,
     /// A game is running.
     pub playing: AtomicBool,
+    /// Downloads waiting their turn, in order.
+    pub queue: Mutex<std::collections::VecDeque<i64>>,
+    /// A download worker is running.
+    pub download_worker: AtomicBool,
+    /// The running download: (rom id, bytes done, total).
+    pub active_download: Mutex<Option<(i64, u64, u64)>>,
     /// Plain HTTP client for GitHub (updater).
     pub http: reqwest::Client,
 }
@@ -55,6 +61,9 @@ impl AppState {
             pending_update: Mutex::new(None),
             downloads: Mutex::new(Default::default()),
             playing: AtomicBool::new(false),
+            queue: Mutex::new(Default::default()),
+            download_worker: AtomicBool::new(false),
+            active_download: Mutex::new(None),
             http,
         }
     }

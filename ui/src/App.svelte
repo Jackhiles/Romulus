@@ -13,6 +13,7 @@
   import Platforms from './screens/Platforms.svelte'
   import Search from './screens/Search.svelte'
   import Bios from './screens/Bios.svelte'
+  import Downloads from './screens/Downloads.svelte'
   import Settings from './screens/Settings.svelte'
   import Setup from './screens/Setup.svelte'
 
@@ -84,6 +85,8 @@
         <Detail romId={top.romId} siblings={top.siblings} />
       {:else if top.name === 'search'}
         <Search bind:entry={nav.stack[nav.stack.length - 1]} />
+      {:else if top.name === 'downloads'}
+        <Downloads />
       {:else if top.name === 'bios'}
         <Bios />
       {:else if top.name === 'settings'}

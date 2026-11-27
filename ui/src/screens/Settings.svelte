@@ -7,6 +7,7 @@
   import { onAction, setWebGamepad, type Action } from '../lib/input'
   import { library, refresh } from '../lib/library.svelte'
   import { push } from '../lib/nav.svelte'
+  import { downloadCount } from '../lib/play.svelte'
   import { toast } from '../lib/toast.svelte'
 
   let { onsignout }: { onsignout: () => void } = $props()
@@ -129,6 +130,11 @@
           const i = SYSTEMS_VIEWS.indexOf(s.systems_view)
           patch({ systems_view: SYSTEMS_VIEWS[(i + d + SYSTEMS_VIEWS.length) % SYSTEMS_VIEWS.length] })
         },
+      },
+      {
+        label: 'Downloads',
+        value: downloadCount() ? `${downloadCount()} running or waiting` : 'None',
+        run: () => push({ name: 'downloads' }),
       },
       { label: 'BIOS', value: 'Get BIOS files from RomM', run: () => push({ name: 'bios' }) },
       {

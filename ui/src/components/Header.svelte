@@ -2,6 +2,7 @@
   // Top bar: screen title on the left; sync state and the time on the right.
   import { ago } from '../lib/format'
   import { library } from '../lib/library.svelte'
+  import { device, downloadCount } from '../lib/play.svelte'
 
   let { title, subtitle = '' }: { title: string; subtitle?: string } = $props()
 
@@ -26,6 +27,10 @@
         Synced {ago(library.lastSync, now)}
       {/if}
     </span>
+    {#if downloadCount()}
+      {@const active = Object.values(device.downloads).find((d) => !d.queued && d.total)}
+      <span class="dl">⬇ {downloadCount()}{active ? ` · ${Math.floor((active.done / active.total) * 100)}%` : ''}</span>
+    {/if}
     <span class="clock">{clock}</span>
   </div>
 </header>
@@ -75,6 +80,11 @@
     display: flex;
     align-items: center;
     gap: 8px;
+  }
+  .dl {
+    color: var(--accent);
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
   }
   .clock {
     color: var(--text);

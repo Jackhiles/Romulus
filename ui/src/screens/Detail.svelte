@@ -173,7 +173,7 @@
   const hints = $derived.by(() => {
     const h: [Action, string][] = []
     if (status?.state === 'installed') h.push(['a', 'Play'], ['x', 'Remove'])
-    else if (busy) h.push(['x', 'Stop download'])
+    else if (busy) h.push(['x', progress?.queued ? 'Remove from queue' : 'Stop download'])
     else if (status?.state === 'not_installed') h.push(['a', 'Download'])
     if (shots.length > 1) h.push(['right', 'Screenshots'])
     if (siblings.length > 1) h.push(['rb', 'Next game'])

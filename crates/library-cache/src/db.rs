@@ -70,6 +70,13 @@ CREATE TABLE played (
     last_played INTEGER NOT NULL
 );
 "#,
+    r#"
+-- Downloads waiting or running, so they continue after a restart.
+CREATE TABLE download_queue (
+    rom_id INTEGER PRIMARY KEY,
+    seq    INTEGER NOT NULL
+);
+"#,
 ];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -559,6 +566,26 @@ impl Cache {
         Ok(())
     }
 
+    pub fn queue_download(&self, rom_id: i64) -> Result<()> {
+        self.conn.execute(
+            "INSERT OR IGNORE INTO download_queue (rom_id, seq)
+             VALUES (?1, (SELECT COALESCE(MAX(seq), 0) + 1 FROM download_queue))",
+            [rom_id],
+        )?;
+        Ok(())
+    }
+
+    pub fn unqueue_download(&self, rom_id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM download_queue WHERE rom_id = ?1", [rom_id])?;
+        Ok(())
+    }
+
+    /// Queued downloads, oldest first.
+    pub fn queued_downloads(&self) -> Result<Vec<i64>> {
+        self.ids("SELECT rom_id FROM download_queue ORDER BY seq")
+    }
+
     pub fn mark_played_now(&self, rom_id: i64) -> Result<()> {
         self.conn.execute(
             "INSERT INTO played (rom_id, last_played) VALUES (?1, unixepoch())
@@ -682,6 +709,18 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn download_queue_keeps_order() {
+        let c = Cache::open_in_memory().unwrap();
+        for id in [5, 3, 9, 3] {
+            c.queue_download(id).unwrap();
+        }
+        assert_eq!(c.queued_downloads().unwrap(), [5, 3, 9]);
+        c.unqueue_download(3).unwrap();
+        c.queue_download(3).unwrap();
+        assert_eq!(c.queued_downloads().unwrap(), [5, 9, 3]);
     }
 
     #[test]

@@ -7,7 +7,8 @@ import { toast } from './toast.svelte'
 
 export const device = $state({
   installed: new Set<number>(),
-  downloads: {} as Record<number, { done: number; total: number }>,
+  /** Running and waiting downloads; `queued` is the place in line while waiting. */
+  downloads: {} as Record<number, { done: number; total: number; queued?: number }>,
   playing: null as number | null,
   playingTitle: '',
   /** Bumped when an install changes, so screens can re-check a game. */
@@ -30,6 +31,10 @@ export function initDevice() {
   started = true
   onDownload((e) => {
     switch (e.stage) {
+      case 'queued':
+        // Position 1 starts right away; others wait.
+        device.downloads[e.rom_id] = { done: 0, total: 0, queued: e.position > 1 ? e.position : undefined }
+        break
       case 'progress':
         device.downloads[e.rom_id] = { done: e.done, total: e.total }
         break
@@ -42,7 +47,7 @@ export function initDevice() {
       case 'cancelled':
         delete device.downloads[e.rom_id]
         device.revision++
-        toast('Download stopped. It will continue where it left off next time.')
+        toast('Download stopped. Downloading again continues where it left off.')
         break
       case 'failed':
         delete device.downloads[e.rom_id]
@@ -109,7 +114,13 @@ export function saveMessage(note: string | null, when: 'before' | 'after'): stri
   return `Save sync problem: ${note.replace(/^failed: /, '')}`
 }
 
-export function progressText(p: { done: number; total: number }): string {
+/** Downloads running or waiting. */
+export function downloadCount(): number {
+  return Object.keys(device.downloads).length
+}
+
+export function progressText(p: { done: number; total: number; queued?: number }): string {
+  if (p.queued) return 'Waiting in the download queue'
   if (!p.total) return 'Starting…'
   return `${size(p.done)} of ${size(p.total)} · ${Math.floor((p.done / p.total) * 100)}%`
 }

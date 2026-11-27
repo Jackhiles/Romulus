@@ -101,6 +101,7 @@ const handlers: Record<string, (a: any) => unknown> = {
     kind === 'installed'
       ? lib.roms.filter((r) => installed.has(r.id)).map(row)
       : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
+  downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
   bios_status: () => [
     { platform_id: 1, name: 'PlayStation', slug: 'psx', supported: true, files: [
       { id: 1, name: 'scph1001.bin', size_bytes: 524288, verified: true, state: 'present' },
