@@ -130,6 +130,17 @@ impl Cache {
         Ok(())
     }
 
+    pub fn delete_meta(&self, key: &str) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM meta WHERE key = ?1", [key])?;
+        Ok(())
+    }
+
+    /// Ids of all cached ROMs.
+    pub fn rom_ids(&self) -> Result<Vec<i64>> {
+        self.ids("SELECT id FROM roms")
+    }
+
     // ---- writes ------------------------------------------------------------------------
 
     pub fn upsert_platforms(&mut self, platforms: &[Platform]) -> Result<()> {

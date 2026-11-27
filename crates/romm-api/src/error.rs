@@ -6,7 +6,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("invalid server address: {0}")]
     InvalidUrl(String),
-    #[error("network error: {0}")]
+    #[error("network error: {}", with_cause(.0))]
     Network(#[from] reqwest::Error),
     #[error("not signed in, or the session expired")]
     Unauthorized,
@@ -20,7 +20,32 @@ pub enum Error {
     Decode(String),
 }
 
+/// reqwest's message ("error sending request for url ...") hides why; add the innermost
+/// cause ("operation timed out", "connection reset", ...).
+fn with_cause(e: &reqwest::Error) -> String {
+    let mut root: &dyn std::error::Error = e;
+    while let Some(s) = root.source() {
+        root = s;
+    }
+    let top = e.to_string();
+    let cause = root.to_string();
+    if cause == top {
+        top
+    } else {
+        format!("{top}: {cause}")
+    }
+}
+
 impl Error {
+    /// Worth trying again: the network or the server had a problem, not the request.
+    pub fn is_transient(&self) -> bool {
+        match self {
+            Error::Network(_) => true,
+            Error::Http { status, .. } => *status >= 500 || *status == 429,
+            _ => false,
+        }
+    }
+
     /// The RomM `detail` string for a 400 error, if this is one.
     pub fn detail(&self) -> Option<&str> {
         match self {

@@ -83,7 +83,9 @@ impl Client {
         let http = reqwest::Client::builder()
             .user_agent(user_agent)
             .connect_timeout(Duration::from_secs(15))
-            .read_timeout(Duration::from_secs(60))
+            // RomM builds a whole page before it sends anything, and a busy server can
+            // take over a minute for one; the sync retries and resumes on its own.
+            .read_timeout(Duration::from_secs(180))
             .gzip(true)
             .build()?;
         Ok(Self {
@@ -200,6 +202,11 @@ impl Client {
     /// Full detail for one ROM, as raw JSON (the detail schema is large and only parts of
     /// it are shown).
     pub async fn rom_detail(&self, id: i64) -> Result<serde_json::Value> {
+        self.get_json(&format!("/api/roms/{id}"), &[]).await
+    }
+
+    /// One ROM, typed like a list item (the detail schema is a superset of it).
+    pub async fn rom(&self, id: i64) -> Result<Rom> {
         self.get_json(&format!("/api/roms/{id}"), &[]).await
     }
 
