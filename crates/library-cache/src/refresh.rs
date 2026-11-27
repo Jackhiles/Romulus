@@ -50,6 +50,8 @@ pub struct RefreshStats {
     pub roms_reconciled: usize,
     pub platforms_removed: usize,
     pub roms_removed: usize,
+    /// Collections on the server (regular and smart).
+    pub collections: usize,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -109,6 +111,12 @@ where
 ///    does not matter).
 ///
 /// The lock is only held while writing, so the UI keeps reading during a refresh.
+async fn collections(client: &Client) -> romm_api::Result<Vec<romm_api::Collection>> {
+    let mut list = retry("collections", || client.collections()).await?;
+    list.extend(retry("smart collections", || client.smart_collections()).await?);
+    Ok(list)
+}
+
 pub async fn refresh(
     client: &Client,
     cache: &Mutex<Cache>,
@@ -221,6 +229,16 @@ pub async fn refresh(
         }
         stats.roms_reconciled = found.len();
         lock(cache).upsert_roms(&found)?;
+    }
+
+    // Collections are small and have no incremental listing: fetch them whole. A
+    // failure here (an older server, a missing scope) keeps the cached ones.
+    match collections(client).await {
+        Ok(list) => {
+            stats.collections = list.len();
+            lock(cache).replace_collections(&list)?;
+        }
+        Err(e) => tracing::warn!("could not read collections: {e}"),
     }
 
     {
@@ -397,6 +415,41 @@ mod tests {
         mount_ids(&s, &[], &[1, 2, 3]).await;
         let st = refresh(&client(&s), &cache, |_| {}).await.unwrap();
         assert_eq!(st.roms_updated, 3);
+    }
+
+    #[tokio::test]
+    async fn stores_collections_and_survives_without_them() {
+        let s = MockServer::start().await;
+        let cache = Mutex::new(Cache::open_in_memory().unwrap());
+        mount_platforms(&s).await;
+        Mock::given(path("/api/roms"))
+            .respond_with(page(roms(1..4), 0))
+            .mount(&s)
+            .await;
+        mount_ids(&s, &[], &[1, 2, 3]).await;
+        // No collection endpoints (404): the sync still succeeds.
+        let st = refresh(&client(&s), &cache, |_| {}).await.unwrap();
+        assert_eq!(st.collections, 0);
+
+        Mock::given(path("/api/collections"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"id": 4, "name": "Favourites", "rom_ids": [2], "is_favorite": true}
+            ])))
+            .mount(&s)
+            .await;
+        Mock::given(path("/api/collections/smart"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(json!([
+                {"id": 4, "name": "Unplayed", "rom_ids": [1, 3]}
+            ])))
+            .mount(&s)
+            .await;
+        let st = refresh(&client(&s), &cache, |_| {}).await.unwrap();
+        assert_eq!(st.collections, 2);
+        let c = cache.lock().unwrap();
+        let all = c.collections().unwrap();
+        assert_eq!((all[0].name.as_str(), all[0].smart), ("Favourites", false));
+        assert_eq!((all[1].name.as_str(), all[1].smart), ("Unplayed", true));
+        assert_eq!(c.collection_roms(true, 4).unwrap().len(), 2);
     }
 
     #[tokio::test]

@@ -1,5 +1,5 @@
 use crate::Result;
-use romm_api::{Platform, Rom};
+use romm_api::{Collection, Platform, Rom};
 use rusqlite::{Connection, OptionalExtension, params};
 use serde::Serialize;
 use std::collections::{HashMap, HashSet};
@@ -77,7 +77,35 @@ CREATE TABLE download_queue (
     seq    INTEGER NOT NULL
 );
 "#,
+    r#"
+-- RomM collections (smart = rule-based) with their ROM ids (JSON array).
+CREATE TABLE collections (
+    smart       INTEGER NOT NULL,
+    id          INTEGER NOT NULL,
+    name        TEXT NOT NULL,
+    is_favorite INTEGER NOT NULL,
+    rom_ids     TEXT NOT NULL,
+    PRIMARY KEY (smart, id)
+);
+-- Each save state file as it was when last in sync with RomM (JSON).
+CREATE TABLE state_sync (
+    rom_id INTEGER NOT NULL,
+    name   TEXT NOT NULL,
+    data   TEXT NOT NULL,
+    PRIMARY KEY (rom_id, name)
+);
+"#,
 ];
+
+/// A RomM collection as cached.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct CollectionRow {
+    pub id: i64,
+    pub smart: bool,
+    pub name: String,
+    pub is_favorite: bool,
+    pub rom_ids: Vec<i64>,
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PlatformRow {
@@ -716,11 +744,106 @@ impl Cache {
         Ok(self.conn.query_row(&sql, [], rom_row).optional()?)
     }
 
+    /// Replace all cached collections with the server's.
+    pub fn replace_collections(&mut self, list: &[Collection]) -> Result<()> {
+        let tx = self.conn.transaction()?;
+        tx.execute("DELETE FROM collections", [])?;
+        for c in list {
+            insert_collection(&tx, c)?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Store one collection as the server returned it (after a change).
+    pub fn upsert_collection(&self, c: &Collection) -> Result<()> {
+        insert_collection(&self.conn, c)
+    }
+
+    /// Favourites first, then by name.
+    pub fn collections(&self) -> Result<Vec<CollectionRow>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT id, smart, name, is_favorite, rom_ids FROM collections
+             ORDER BY is_favorite DESC, name COLLATE NOCASE, id",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(CollectionRow {
+                    id: r.get(0)?,
+                    smart: r.get(1)?,
+                    name: r.get(2)?,
+                    is_favorite: r.get(3)?,
+                    rom_ids: serde_json::from_str(&r.get::<_, String>(4)?).unwrap_or_default(),
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// The favourites collection, if the user has one.
+    pub fn favourites(&self) -> Result<Option<CollectionRow>> {
+        Ok(self
+            .collections()?
+            .into_iter()
+            .find(|c| c.is_favorite && !c.smart))
+    }
+
+    /// Games of a collection that are in the cache, by title.
+    pub fn collection_roms(&self, smart: bool, id: i64) -> Result<Vec<RomRow>> {
+        let sql = format!(
+            "{ROM_SELECT}
+             JOIN json_each((SELECT rom_ids FROM collections WHERE smart = ?1 AND id = ?2)) j
+               ON j.value = roms.id
+             ORDER BY roms.sort_key, roms.id"
+        );
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map(params![smart, id], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Sync records of a game's save state files, by file name.
+    pub fn state_records(&self, rom_id: i64) -> Result<HashMap<String, String>> {
+        let mut st = self
+            .conn
+            .prepare_cached("SELECT name, data FROM state_sync WHERE rom_id = ?1")?;
+        let rows = st
+            .query_map([rom_id], |r| Ok((r.get(0)?, r.get(1)?)))?
+            .collect::<rusqlite::Result<HashMap<_, _>>>()?;
+        Ok(rows)
+    }
+
+    pub fn set_state_record(&self, rom_id: i64, name: &str, data: &str) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO state_sync (rom_id, name, data) VALUES (?1, ?2, ?3)
+             ON CONFLICT(rom_id, name) DO UPDATE SET data = excluded.data",
+            params![rom_id, name, data],
+        )?;
+        Ok(())
+    }
+
     pub fn rom_count(&self) -> Result<i64> {
         Ok(self
             .conn
             .query_row("SELECT COUNT(*) FROM roms", [], |r| r.get(0))?)
     }
+}
+
+fn insert_collection(conn: &Connection, c: &Collection) -> Result<()> {
+    conn.execute(
+        "INSERT INTO collections (smart, id, name, is_favorite, rom_ids) VALUES (?1, ?2, ?3, ?4, ?5)
+         ON CONFLICT(smart, id) DO UPDATE SET name = excluded.name,
+           is_favorite = excluded.is_favorite, rom_ids = excluded.rom_ids",
+        params![
+            c.is_smart,
+            c.id,
+            c.name,
+            c.is_favorite,
+            serde_json::to_string(&c.rom_ids)?
+        ],
+    )?;
+    Ok(())
 }
 
 const ROM_SELECT: &str = "SELECT roms.id, roms.platform_id, roms.title, roms.fs_name, roms.size_bytes, roms.cover_small, roms.cover_large, roms.updated_at FROM roms";
@@ -952,6 +1075,59 @@ pub(crate) mod tests {
         assert_eq!(c.retain_platforms(&[1]).unwrap(), 1);
         assert_eq!(c.rom_count().unwrap(), 1);
         assert!(c.rom(2).unwrap().is_none());
+    }
+
+    #[test]
+    fn collections_and_favourites() {
+        let mut c = Cache::open_in_memory().unwrap();
+        c.upsert_roms(&[
+            rom(1, 1, "Zelda"),
+            rom(2, 1, "Alundra"),
+            rom(3, 1, "Metroid"),
+        ])
+        .unwrap();
+        let col = |id, name: &str, ids: Vec<i64>, fav, smart| Collection {
+            id,
+            name: name.into(),
+            rom_ids: ids,
+            is_favorite: fav,
+            is_smart: smart,
+            updated_at: None,
+        };
+        c.replace_collections(&[
+            col(5, "RPGs", vec![1, 2, 99], false, false),
+            col(5, "Recent adds", vec![3], false, true),
+            col(9, "Favourites", vec![3], true, false),
+        ])
+        .unwrap();
+        let names: Vec<_> = c
+            .collections()
+            .unwrap()
+            .into_iter()
+            .map(|c| c.name)
+            .collect();
+        assert_eq!(names, ["Favourites", "Recent adds", "RPGs"]);
+        // Only games in the cache, by title; smart and regular ids don't clash.
+        let ids = |rows: Vec<RomRow>| rows.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(ids(c.collection_roms(false, 5).unwrap()), [2, 1]);
+        assert_eq!(ids(c.collection_roms(true, 5).unwrap()), [3]);
+        assert_eq!(c.favourites().unwrap().unwrap().id, 9);
+        c.upsert_collection(&col(9, "Favourites", vec![3, 1], true, false))
+            .unwrap();
+        assert_eq!(c.favourites().unwrap().unwrap().rom_ids, [3, 1]);
+        c.replace_collections(&[]).unwrap();
+        assert!(c.collections().unwrap().is_empty());
+    }
+
+    #[test]
+    fn state_records_per_file() {
+        let c = Cache::open_in_memory().unwrap();
+        c.set_state_record(7, "Game.state", "a").unwrap();
+        c.set_state_record(7, "Game.state1", "b").unwrap();
+        c.set_state_record(7, "Game.state", "c").unwrap();
+        let r = c.state_records(7).unwrap();
+        assert_eq!((r.len(), r["Game.state"].as_str()), (2, "c"));
+        assert!(c.state_records(8).unwrap().is_empty());
     }
 
     #[test]
