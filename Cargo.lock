@@ -2618,7 +2618,7 @@ dependencies = [
 
 [[package]]
 name = "launcher"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "fs4",
  "futures-util",
@@ -2694,7 +2694,7 @@ dependencies = [
 
 [[package]]
 name = "library-cache"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "hex",
  "romm-api",
@@ -2927,7 +2927,7 @@ checksum = "743fb55ba31b18fb1ecef6bdc9aa2743314978ac084044301a7eee33fb99a20d"
 
 [[package]]
 name = "music"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "rodio",
  "tracing",
@@ -4190,7 +4190,7 @@ dependencies = [
 
 [[package]]
 name = "romm-api"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "reqwest 0.12.28",
  "serde",
@@ -4205,7 +4205,7 @@ dependencies = [
 
 [[package]]
 name = "romulus"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "crc32fast",
  "dirs 6.0.0",
@@ -5053,7 +5053,7 @@ dependencies = [
 
 [[package]]
 name = "sync"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "hex",
  "md-5",
@@ -5926,7 +5926,7 @@ checksum = "8ecb6da28b8a351d773b68d5825ac39017e680750f980f3a1a85cd8dd28a47c1"
 
 [[package]]
 name = "updater"
-version = "0.5.0"
+version = "0.6.0"
 dependencies = [
  "futures-util",
  "hex",
