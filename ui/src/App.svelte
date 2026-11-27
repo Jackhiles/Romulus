@@ -83,7 +83,7 @@
       {:else if top.name === 'games'}
         <Games bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'detail'}
-        <Detail romId={top.romId} siblings={top.siblings} />
+        <Detail romId={top.romId} siblings={top.siblings} surprise={top.surprise} />
       {:else if top.name === 'search'}
         <Search bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'achievements'}

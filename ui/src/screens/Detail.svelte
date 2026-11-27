@@ -27,7 +27,8 @@
   import { push } from '../lib/nav.svelte'
   import { toast } from '../lib/toast.svelte'
 
-  let { romId, siblings = [] }: { romId: number; siblings?: number[] } = $props()
+  let { romId, siblings = [], surprise = false }: { romId: number; siblings?: number[]; surprise?: boolean } =
+    $props()
 
   // svelte-ignore state_referenced_locally
   let id = $state(romId)
@@ -171,6 +172,10 @@
       case 'y':
         if (ra && rom) push({ name: 'achievements', romId: id, title: rom.title })
         return true
+      case 'rt':
+        // Opened by "Surprise me": another random game.
+        if (surprise) api.randomRom().then((r) => r && (id = r.id))
+        return true
       case 'left':
       case 'right':
         if (shots.length > 1) shot = (shot + (action === 'right' ? 1 : -1) + shots.length) % shots.length
@@ -204,6 +209,7 @@
     if (shots.length > 1) h.push(['right', 'Screenshots'])
     if (siblings.length > 1) h.push(['rb', 'Next game'])
     if (ra) h.push(['y', 'Achievements'])
+    if (surprise) h.push(['rt', 'Another'])
     h.push(['b', 'Back'])
     return h
   })

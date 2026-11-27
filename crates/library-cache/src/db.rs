@@ -624,6 +624,13 @@ impl Cache {
         Ok(rows)
     }
 
+    /// A random game with cover art (for "Surprise me").
+    pub fn random_rom(&self) -> Result<Option<RomRow>> {
+        let sql =
+            format!("{ROM_SELECT} WHERE roms.cover_small IS NOT NULL ORDER BY RANDOM() LIMIT 1");
+        Ok(self.conn.query_row(&sql, [], rom_row).optional()?)
+    }
+
     pub fn rom_count(&self) -> Result<i64> {
         Ok(self
             .conn
@@ -709,6 +716,20 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn random_rom_needs_a_cover() {
+        let mut c = Cache::open_in_memory().unwrap();
+        assert!(c.random_rom().unwrap().is_none());
+        c.upsert_roms(&[rom(1, 1, "No cover")]).unwrap();
+        assert!(c.random_rom().unwrap().is_none());
+        let with: Rom = serde_json::from_value(json!({
+            "id": 2, "platform_id": 1, "name": "Cover", "fs_name": "c.bin", "path_cover_small": "/c.png"
+        }))
+        .unwrap();
+        c.upsert_roms(&[with]).unwrap();
+        assert_eq!(c.random_rom().unwrap().unwrap().id, 2);
     }
 
     #[test]

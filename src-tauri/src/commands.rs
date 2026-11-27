@@ -256,6 +256,12 @@ pub async fn platform_covers(
     with_cache(&state, move |c| c.platform_covers(per_platform.min(12))).await
 }
 
+/// A random game with cover art.
+#[tauri::command]
+pub async fn random_rom(state: State<'_, AppState>) -> Res<Option<RomRow>> {
+    with_cache(&state, |c| c.random_rom()).await
+}
+
 /// Automatic collections: "recent" (continue playing) or "installed" (on this Deck).
 #[tauri::command]
 pub async fn collection(state: State<'_, AppState>, kind: String) -> Res<Vec<RomRow>> {

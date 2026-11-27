@@ -62,6 +62,11 @@
     if (p) push({ name: 'games', platformId: p.id, platformName: p.name, platformSlug: p.slug })
   }
 
+  /** Open a random game. */
+  function surprise() {
+    api.randomRom().then((r) => r && push({ name: 'detail', romId: r.id, surprise: true }))
+  }
+
   function move(delta: number) {
     const n = platforms.length
     if (n) index = Math.min(Math.max(index + delta, 0), n - 1)
@@ -90,6 +95,9 @@
       case 'a':
         open(index)
         return true
+      case 'rt':
+        surprise()
+        return true
       case 'select':
         view = VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length]
         api.updateSettings({ systems_view: view }).catch(() => {})
@@ -115,6 +123,7 @@
     ['a', 'Open'],
     ['y', 'Search'],
     ['x', 'Sync'],
+    ['rt', 'Surprise me'],
     ['select', NEXT_VIEW[view]],
     ['start', 'Settings'],
   ])

@@ -13,7 +13,7 @@ export type Screen = Saved &
     | { name: 'setup' }
     | { name: 'platforms' }
     | { name: 'games'; platformId: number; platformName: string; platformSlug: string }
-    | { name: 'detail'; romId: number; siblings?: number[] }
+    | { name: 'detail'; romId: number; siblings?: number[]; surprise?: boolean }
     | { name: 'search' }
     | { name: 'settings' }
     | { name: 'bios' }

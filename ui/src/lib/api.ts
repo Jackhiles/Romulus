@@ -97,6 +97,7 @@ export const api = {
   rom: (id: number) => invoke<RomDetail | null>('rom', { id }),
   search: (query: string) => invoke<Rom[]>('search', { query }),
   collection: (kind: 'recent' | 'installed') => invoke<Rom[]>('collection', { kind }),
+  randomRom: () => invoke<Rom | null>('random_rom'),
   refreshLibrary: () => invoke<boolean>('refresh_library'),
   checkUpdate: () => invoke<Release | null>('check_update'),
   installUpdate: () => invoke<void>('install_update'),
