@@ -64,7 +64,8 @@ libraries.
 | **Negotiate** | `POST /sync/negotiate` | We send `{device_id, saves:[{rom_id, file_name, slot, emulator, content_hash, updated_at, file_size_bytes}], rom_ids}`. The server answers `operations[]` with `action` (upload/download/conflict/no_op/delete), `reason`, `server_content_hash`, `server_updated_at` |
 | Finish | `POST /sync/sessions/{id}/complete` | |
 | Saves | `GET /saves?rom_id=&device_id=`, `POST /saves?rom_id=&emulator=&slot=&device_id=&content_hash=` (multipart), `GET /saves/{id}/content`, `POST /saves/{id}/downloaded` | |
-| States | `GET /states?rom_id=`, `POST /states?rom_id=&emulator=`, `GET /states/{id}/content` | States have no hash/device fields in 5.4.1, so Romulus tracks them itself |
+| States | `GET /states?rom_id=`, `POST /states?rom_id=&emulator=` (multipart `stateFile`), `GET /states/{id}/content` | No hash/device fields in 5.4.1, so Romulus tracks them itself (md5 on the Deck, `id@updated_at` on RomM). Every upload is a new state named `Game [2026-01-15 23-09-20-955].state`; older ones stay. Romulus only uses states whose `emulator` is its own (the web player writes e.g. `pcsx_rearmed`) |
+| Collections | `GET /collections`, `GET /collections/smart`, `POST /collections?is_favorite=true` (multipart `name`), `POST`/`DELETE /collections/{id}/roms` `{rom_ids}` | Favourites is the collection with `is_favorite`. Changing one needs the `collections.write` scope, which pairings before 0.6 didn't ask for |
 | Firmware | `GET /firmware?platform_id=`, `GET /firmware/{id}/content/{file_name}` | `FirmwareSchema` has `md5/sha1/crc` and `is_verified` |
 | Save layout hint | `save_target`, `save_target_layout` on the ROM | To look into: may tell us where the server expects saves to live |
 

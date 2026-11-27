@@ -6,9 +6,12 @@ Steam once, and (in later phases) download games on demand, launch them through 
 and keep saves, states and BIOS in sync.
 
 Status: **browsing, downloading, playing through RetroDECK and save sync work on a Deck.**
-Saves sync for RetroArch systems (PS1 with SwanStation, N64, GBA, NDS, ...), PS2 (PCSX2)
-and PSP (PPSSPP); BIOS files come from RomM; RetroAchievements progress shows per game;
-games play their soundtrack (from RomM or your own music folder). See
+Saves sync for RetroArch systems (PS1 with SwanStation, N64, GBA, NDS, ...), PS1 with
+DuckStation (interchangeable with SwanStation's), PS2 (PCSX2) and PSP (PPSSPP); save
+states sync too, between devices using the same emulator. Your RomM collections and
+Favourites show on the systems screen. BIOS files come from RomM; RetroAchievements
+progress shows per game; games play their soundtrack (from RomM or your own music
+folder). See
 [docs/SPEC.md](docs/SPEC.md) for the plan and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 for how it works.
 
@@ -42,6 +45,7 @@ install it from Settings.
 | LT / RT | Jump to previous / next letter; on a game's page, switch between its versions |
 | RT (systems screen) | Surprise me: a random game (Select on its page picks another) |
 | Y (game page) | RetroAchievements list |
+| ☰ (Start, game page) | Add to / remove from Favourites (on RomM) |
 | ☰ (Start) | Settings |
 
 ## Where files go
@@ -52,7 +56,7 @@ install it from Settings.
 | Library cache | `~/.local/share/romulus/library-*.db` |
 | Covers | `~/.cache/romulus/covers/` (pruned at 1 GB) |
 | Logs | `~/.local/state/romulus/logs/` |
-| Save backups | `~/.local/share/romulus/backups/<game id>/` (every save Romulus replaces; restore from Settings → Save backups) |
+| Save backups | `~/.local/share/romulus/backups/<game id>/` (every save Romulus replaces; restore from Settings → Save backups); replaced save states in `backups/states/<game id>/` |
 | Your own game music | `~/.local/share/romulus/music/` (a file named like the game, e.g. `Katamari Damacy.mp3`) |
 | Credentials | `~/.config/romulus/credentials.json` (readable only by you) |
 

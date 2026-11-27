@@ -128,8 +128,17 @@ backup.
 - PPSSPP: `config/ppsspp/PSP/SAVEDATA` is a link to `saves/PSP/PPSSPP-SA`; each game's
   saves are folders starting with its ID. RomM has `save_target` (`ULUS10567`,
   `folder-prefix`) for all 84 PSP games, so PSP saves sync like PCSX2's card folders.
-- DuckStation: per-title memory cards (`Card1Type = PerGameTitle`) in
-  `saves/psx/duckstation/memcards`; named by DuckStation's own title database, so not
-  synced yet (SwanStation is the PS1 default).
+- DuckStation: per-title memory cards (`Card1Type = PerGameTitle`,
+  `UsePlaylistTitle = true`) in `saves/psx/duckstation/memcards`, named `<title>_1.mcd`
+  after the game's `name` in DuckStation's `gamedb.yaml` (inside the flatpak:
+  `retrodeck/components/duckstation/bin/resources/gamedb.yaml`), or its `discSet` name
+  for multi-disc games. RomM's `save_target` is the PS1 serial (`SLUS-00553`,
+  `file-prefix`), which is the database key. The card is the raw 128 KB image, the same
+  as SwanStation's `.srm` (131072 bytes), so the two take each other's saves.
+- Save states: RetroArch `states/<content folder>/<game>.state[N]` (sorted by content,
+  like saves); PCSX2 `states/ps2/pcsx2/<serial> (<CRC>).NN.p2s`; PPSSPP
+  `PSP/PPSSPP_STATE` → `states/PSP/PPSSPP-SA`, `<ID>_1.00_N.ppst`; DuckStation
+  `config/duckstation/savestates` → `states/psx/duckstation`, `<serial>_N.sav`. None on
+  the Deck yet (2026-11-27). RomM had 7 states, all from its web player.
 - BIOS: RomM's 23 PS1/PS2 files are all in `bios/` and match RomM's md5; GBA's
   `gba_bios.bin` is missing; Switch and Xbox firmware need their own layouts.
