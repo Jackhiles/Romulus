@@ -100,7 +100,13 @@ mod tests {
     }
 
     /// (name, device, server, last sync, expected)
-    type Case = (&'static str, Option<Local>, Option<Server>, Option<Record>, Action);
+    type Case = (
+        &'static str,
+        Option<Local>,
+        Option<Server>,
+        Option<Record>,
+        Action,
+    );
 
     #[test]
     fn every_case() {
