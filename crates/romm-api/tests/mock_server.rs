@@ -280,3 +280,98 @@ async fn server_errors_carry_detail() {
         other => panic!("{other:?}"),
     }
 }
+
+fn file(id: i64, name: &str) -> romm_api::RomFile {
+    romm_api::RomFile {
+        id,
+        file_name: name.into(),
+        file_path: "roms/psx/Game".into(),
+        file_size_bytes: 10,
+        is_top_level: true,
+        category: Some("game".into()),
+        sha1_hash: None,
+    }
+}
+
+#[tokio::test]
+async fn download_encodes_name_and_resumes_with_range() {
+    let s = MockServer::start().await;
+    // The '#' and spaces must arrive as one encoded path segment.
+    Mock::given(method("GET"))
+        .and(path("/api/roms/7/files/content/Game%20%231%20(USA).chd"))
+        .and(header("range", "bytes=4-"))
+        .respond_with(
+            ResponseTemplate::new(206)
+                .insert_header("content-range", "bytes 4-9/10")
+                .set_body_bytes(b"456789".to_vec()),
+        )
+        .mount(&s)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/api/roms/7/files/content/Game%20%231%20(USA).chd"))
+        .respond_with(ResponseTemplate::new(200).set_body_bytes(b"0123456789".to_vec()))
+        .mount(&s)
+        .await;
+    let c = client(&s).await;
+    let f = file(7, "Game #1 (USA).chd");
+
+    let d = c.download_file(&f, 4).await.unwrap();
+    assert!(d.partial);
+    assert_eq!(d.total, Some(10));
+    assert_eq!(d.response.bytes().await.unwrap().as_ref(), b"456789");
+
+    let d = c.download_file(&f, 0).await.unwrap();
+    assert!(!d.partial);
+    assert_eq!(d.total, Some(10));
+}
+
+#[tokio::test]
+async fn reads_rom_files_and_reports_play() {
+    let s = MockServer::start().await;
+    Mock::given(path("/api/roms/1653"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({
+            "id": 1653, "fs_name": "Metal Gear Solid (USA) (Rev 1)", "fs_path": "roms/psx",
+            "platform_fs_slug": "psx", "has_simple_single_file": false,
+            "files": [{"id": 10616, "file_name": "Metal Gear Solid (USA) (Rev 1).m3u",
+                       "file_path": "roms/psx/Metal Gear Solid (USA) (Rev 1)", "file_size_bytes": 90,
+                       "is_top_level": true, "category": "game", "sha1_hash": "5ae4"}],
+            "summary": "ignored"
+        })))
+        .mount(&s)
+        .await;
+    Mock::given(method("POST"))
+        .and(path("/api/play-sessions"))
+        .and(body_string_contains("\"device_id\":\"dev-1\""))
+        .and(body_string_contains("\"duration_ms\":60000"))
+        .and(body_string_contains(
+            "\"start_time\":\"2026-11-27T10:00:00Z\"",
+        ))
+        .respond_with(ResponseTemplate::new(201).set_body_json(json!({"created": 1})))
+        .expect(1)
+        .mount(&s)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path("/api/roms/1653/props"))
+        .and(query_param("update_last_played", "true"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(json!({})))
+        .expect(1)
+        .mount(&s)
+        .await;
+
+    let c = client(&s).await;
+    let r = c.rom_files(1653).await.unwrap();
+    assert_eq!(r.files[0].category.as_deref(), Some("game"));
+    let start = time::macros::datetime!(2026-11-27 10:00 UTC);
+    c.report_play_sessions(
+        Some("dev-1"),
+        &[romm_api::PlaySession {
+            rom_id: 1653,
+            start_time: start,
+            end_time: start + time::Duration::minutes(1),
+            duration_ms: 60_000,
+        }],
+    )
+    .await
+    .unwrap();
+    c.mark_played(1653).await.unwrap();
+}

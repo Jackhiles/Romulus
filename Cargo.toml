@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["src-tauri", "crates/romm-api", "crates/library-cache", "crates/updater"]
+members = ["src-tauri", "crates/romm-api", "crates/library-cache", "crates/updater", "crates/launcher"]
 
 [workspace.package]
 version = "0.2.0"
@@ -13,6 +13,7 @@ library-cache = { path = "crates/library-cache" }
 
 
 updater = { path = "crates/updater" }
+launcher = { path = "crates/launcher" }
 
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "fs", "process", "time", "sync"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "gzip", "stream", "multipart"] }
@@ -22,7 +23,7 @@ thiserror = "2"
 tracing = "0.1"
 rusqlite = { version = "0.37", features = ["bundled"] }
 url = "2"
-time = { version = "0.3", features = ["serde", "formatting", "parsing", "macros"] }
+time = { version = "0.3", features = ["serde", "serde-well-known", "formatting", "parsing", "macros"] }
 sha2 = "0.10"
 hex = "0.4"
 wiremock = "0.6"

@@ -6,7 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 /// Schema migrations, applied in order. `PRAGMA user_version` holds how many have run.
-const MIGRATIONS: &[&str] = &[r#"
+const MIGRATIONS: &[&str] = &[
+    r#"
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 
 CREATE TABLE platforms (
@@ -36,7 +37,26 @@ CREATE TABLE roms (
 CREATE INDEX roms_platform_sort ON roms (platform_id, sort_key);
 
 CREATE VIRTUAL TABLE roms_fts USING fts5 (title, alt_names, fs_name, content='', tokenize='unicode61 remove_diacritics 2');
-"#];
+"#,
+    r#"
+-- Games downloaded onto this device. `data` is the launcher's install record (JSON).
+CREATE TABLE installs (
+    rom_id       INTEGER PRIMARY KEY,
+    data         TEXT NOT NULL,
+    size_bytes   INTEGER NOT NULL,
+    installed_at INTEGER NOT NULL
+);
+
+-- Finished play sessions not yet accepted by RomM.
+CREATE TABLE play_sessions (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    rom_id      INTEGER NOT NULL,
+    start_time  TEXT NOT NULL,
+    end_time    TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL
+);
+"#,
+];
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct PlatformRow {
@@ -59,6 +79,15 @@ pub struct RomRow {
     pub cover_small: Option<String>,
     pub cover_large: Option<String>,
     pub updated_at: Option<String>,
+}
+
+/// A play session waiting to be reported to RomM (times are RFC 3339).
+#[derive(Debug, Clone, PartialEq)]
+pub struct QueuedSession {
+    pub rom_id: i64,
+    pub start_time: String,
+    pub end_time: String,
+    pub duration_ms: u64,
 }
 
 #[derive(Debug, Clone, Copy, Default, serde::Deserialize)]
@@ -404,6 +433,78 @@ impl Cache {
         Ok(out)
     }
 
+    // ---- installs and play sessions (device state) --------------------------------------
+
+    pub fn set_install(&self, rom_id: i64, data: &str, size_bytes: u64) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO installs (rom_id, data, size_bytes, installed_at) VALUES (?1, ?2, ?3, unixepoch())
+             ON CONFLICT(rom_id) DO UPDATE SET data = excluded.data, size_bytes = excluded.size_bytes,
+               installed_at = excluded.installed_at",
+            params![rom_id, data, size_bytes as i64],
+        )?;
+        Ok(())
+    }
+
+    pub fn install(&self, rom_id: i64) -> Result<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT data FROM installs WHERE rom_id = ?1",
+                [rom_id],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
+    pub fn installed_ids(&self) -> Result<Vec<i64>> {
+        self.ids("SELECT rom_id FROM installs")
+    }
+
+    pub fn remove_install(&self, rom_id: i64) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM installs WHERE rom_id = ?1", [rom_id])?;
+        Ok(())
+    }
+
+    pub fn queue_play_session(&self, s: &QueuedSession) -> Result<()> {
+        self.conn.execute(
+            "INSERT INTO play_sessions (rom_id, start_time, end_time, duration_ms) VALUES (?1, ?2, ?3, ?4)",
+            params![s.rom_id, s.start_time, s.end_time, s.duration_ms as i64],
+        )?;
+        Ok(())
+    }
+
+    /// Queued sessions, oldest first, with their queue ids.
+    pub fn queued_play_sessions(&self) -> Result<Vec<(i64, QueuedSession)>> {
+        let mut st = self.conn.prepare_cached(
+            "SELECT id, rom_id, start_time, end_time, duration_ms FROM play_sessions ORDER BY id",
+        )?;
+        let rows = st
+            .query_map([], |r| {
+                Ok((
+                    r.get(0)?,
+                    QueuedSession {
+                        rom_id: r.get(1)?,
+                        start_time: r.get(2)?,
+                        end_time: r.get(3)?,
+                        duration_ms: r.get::<_, i64>(4)? as u64,
+                    },
+                ))
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    pub fn delete_play_sessions(&self, ids: &[i64]) -> Result<()> {
+        let mut st = self
+            .conn
+            .prepare_cached("DELETE FROM play_sessions WHERE id = ?1")?;
+        for id in ids {
+            st.execute([id])?;
+        }
+        Ok(())
+    }
+
     pub fn rom_count(&self) -> Result<i64> {
         Ok(self
             .conn
@@ -489,6 +590,31 @@ pub(crate) mod tests {
         assert!(c.search("  ", 10).unwrap().is_empty());
         // Quotes and FTS syntax in the query are treated as plain text.
         assert!(c.search("\" OR *", 10).unwrap().is_empty());
+    }
+
+    #[test]
+    fn installs_and_play_sessions() {
+        let c = Cache::open_in_memory().unwrap();
+        c.set_install(5, r#"{"launch":"/x"}"#, 100).unwrap();
+        c.set_install(5, r#"{"launch":"/y"}"#, 200).unwrap();
+        assert_eq!(c.install(5).unwrap().as_deref(), Some(r#"{"launch":"/y"}"#));
+        assert_eq!(c.installed_ids().unwrap(), [5]);
+        c.remove_install(5).unwrap();
+        assert!(c.install(5).unwrap().is_none());
+
+        let s = QueuedSession {
+            rom_id: 5,
+            start_time: "2026-11-27T10:00:00Z".into(),
+            end_time: "2026-11-27T10:30:00Z".into(),
+            duration_ms: 1_800_000,
+        };
+        c.queue_play_session(&s).unwrap();
+        c.queue_play_session(&s).unwrap();
+        let q = c.queued_play_sessions().unwrap();
+        assert_eq!(q.len(), 2);
+        assert_eq!(q[0].1, s);
+        c.delete_play_sessions(&[q[0].0]).unwrap();
+        assert_eq!(c.queued_play_sessions().unwrap().len(), 1);
     }
 
     #[test]

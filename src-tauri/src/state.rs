@@ -26,6 +26,10 @@ pub struct AppState {
     pub input_paused: Arc<AtomicBool>,
     pub refreshing: AtomicBool,
     pub pending_update: Mutex<Option<updater::Release>>,
+    /// Cancel flags of running downloads, by ROM id.
+    pub downloads: Mutex<std::collections::HashMap<i64, Arc<AtomicBool>>>,
+    /// A game is running.
+    pub playing: AtomicBool,
     /// Plain HTTP client for GitHub (updater).
     pub http: reqwest::Client,
 }
@@ -49,6 +53,8 @@ impl AppState {
             input_paused: Arc::new(AtomicBool::new(false)),
             refreshing: AtomicBool::new(false),
             pending_update: Mutex::new(None),
+            downloads: Mutex::new(Default::default()),
+            playing: AtomicBool::new(false),
             http,
         }
     }

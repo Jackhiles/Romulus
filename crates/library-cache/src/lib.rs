@@ -9,7 +9,7 @@ mod db;
 mod refresh;
 
 pub use covers::CoverCache;
-pub use db::{Cache, PlatformRow, RomRow, SortOrder};
+pub use db::{Cache, PlatformRow, QueuedSession, RomRow, SortOrder};
 pub use refresh::{RefreshProgress, RefreshStats, refresh};
 
 #[derive(Debug, thiserror::Error)]

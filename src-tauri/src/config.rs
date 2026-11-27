@@ -24,6 +24,8 @@ pub struct Config {
     pub web_gamepad: bool,
     /// Version that last ran, for "what's new" after an update.
     pub last_run_version: Option<String>,
+    /// RetroDECK's ROM folder, when detection should be overridden.
+    pub retrodeck_roms: Option<String>,
     /// Systems screen layout: carousel, list or grid.
     pub systems_view: String,
     /// Games screen layout per platform slug: list or grid (list when missing).
@@ -42,6 +44,7 @@ impl Default for Config {
             cover_cache_mb: 1024,
             web_gamepad: false,
             last_run_version: None,
+            retrodeck_roms: None,
             systems_view: "carousel".into(),
             games_view: Default::default(),
         }

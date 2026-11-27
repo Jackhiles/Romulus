@@ -17,6 +17,7 @@ tauri-build = { version = "2", features = [] }
 romm-api.workspace = true
 library-cache.workspace = true
 updater.workspace = true
+launcher.workspace = true
 tauri = { version = "2", features = ["protocol-asset"] }
 tokio.workspace = true
 reqwest.workspace = true

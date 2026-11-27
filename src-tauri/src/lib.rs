@@ -1,6 +1,7 @@
 pub mod app;
 mod commands;
 pub mod config;
+mod games;
 mod input;
 mod logging;
 pub mod paths;
@@ -85,6 +86,13 @@ pub fn run() {
             commands::open_keyboard,
             commands::add_to_steam,
             commands::log_ui,
+            games::retrodeck_status,
+            games::install_status,
+            games::installed_ids,
+            games::download_rom,
+            games::cancel_download,
+            games::remove_rom,
+            games::play_rom,
             commands::quit,
         ])
         .run(tauri::generate_context!())
