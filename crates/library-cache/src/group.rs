@@ -107,9 +107,9 @@ pub fn group(members: &[Member]) -> Vec<Group> {
         }
     }
     let mut sets: HashMap<usize, Vec<&Member>> = HashMap::new();
-    for i in 0..members.len() {
+    for (i, m) in members.iter().enumerate() {
         let r = find(&mut parent, i);
-        sets.entry(r).or_default().push(&members[i]);
+        sets.entry(r).or_default().push(m);
     }
     let mut out: Vec<Group> = sets
         .into_values()
