@@ -5,6 +5,10 @@
 //! it starts and may write it back from memory, so it is only edited while Steam is closed.
 //! In Desktop Mode Steam is closed and restarted around the edit; in Gaming Mode (where
 //! closing Steam would close Romulus too) the user is asked to do it from Desktop Mode.
+//!
+//! The shortcut also gets library artwork (capsule, wide capsule, hero, logo and icon) in
+//! `userdata/<account>/config/grid`, named after its app id. Artwork the user set
+//! themselves is kept. The images come from `tools/steam-art/make.py`.
 
 use crate::app::APP_NAME;
 use std::path::{Path, PathBuf};
@@ -242,22 +246,86 @@ pub fn user_config_dir() -> Option<PathBuf> {
     None
 }
 
+/// The app id of the shortcut in `vdf` that starts `exe`, if there is one.
+fn find_shortcut(vdf: &[(String, Value)], exe: &Path) -> Option<u32> {
+    let exe_q = quoted(exe);
+    let list = vdf.iter().find_map(|(k, v)| match v {
+        Value::Map(list) if k.eq_ignore_ascii_case("shortcuts") => Some(list),
+        _ => None,
+    })?;
+    list.iter().find_map(|(_, e)| match e {
+        Value::Map(m) if launches(m, &exe_q) => Some(
+            m.iter()
+                .find_map(|(k, v)| match v {
+                    Value::Int(id) if k.eq_ignore_ascii_case("appid") => Some(*id),
+                    _ => None,
+                })
+                .unwrap_or_else(|| {
+                    let name = str_field(m, "appname").unwrap_or_else(|| APP_NAME.into());
+                    shortcut_app_id(&exe_q, &name)
+                }),
+        ),
+        _ => None,
+    })
+}
+
+/// The Steam config folder and app id of the shortcut that starts this copy of Romulus.
+fn current_shortcut() -> Option<(PathBuf, u32)> {
+    let exe = updater::program_path().ok()?;
+    let config = user_config_dir()?;
+    let vdf = parse(&std::fs::read(config.join("shortcuts.vdf")).ok()?)?;
+    let id = find_shortcut(&vdf, &exe)?;
+    Some((config, id))
+}
+
 /// Is there already a shortcut that starts this copy of Romulus?
 pub fn has_shortcut() -> bool {
-    let Ok(exe) = updater::program_path() else {
-        return false;
+    current_shortcut().is_some()
+}
+
+/// Library artwork, by the suffix Steam expects after the app id.
+const ARTWORK: [(&str, &[u8]); 5] = [
+    ("p.png", include_bytes!("../icons/steam/capsule.png")),
+    (".png", include_bytes!("../icons/steam/wide.png")),
+    ("_hero.png", include_bytes!("../icons/steam/hero.png")),
+    ("_logo.png", include_bytes!("../icons/steam/logo.png")),
+    ("_icon.png", ICON_PNG),
+];
+
+/// Put the artwork for shortcut `app_id` in `config/grid`. Any image already there for
+/// that slot (in any format: the user's own artwork) is left alone. Returns how many
+/// files were written. Steam picks them up without a restart.
+pub fn write_artwork(config: &Path, app_id: u32) -> std::io::Result<usize> {
+    let grid = config.join("grid");
+    std::fs::create_dir_all(&grid)?;
+    let mut written = 0;
+    for (suffix, bytes) in ARTWORK {
+        let stem = format!("{app_id}{}", suffix.trim_end_matches(".png"));
+        let taken = ["png", "jpg", "jpeg", "webp", "ico"]
+            .iter()
+            .any(|ext| grid.join(format!("{stem}.{ext}")).exists());
+        if !taken {
+            std::fs::write(grid.join(format!("{stem}.png")), bytes)?;
+            written += 1;
+        }
+    }
+    Ok(written)
+}
+
+/// At start-up: give an existing Romulus shortcut any artwork it is missing (shortcuts
+/// added by versions before the artwork existed).
+pub fn ensure_artwork() {
+    if updater::is_dev_build() {
+        return;
+    }
+    let Some((config, id)) = current_shortcut() else {
+        return;
     };
-    let Some(root) = user_config_dir()
-        .and_then(|d| std::fs::read(d.join("shortcuts.vdf")).ok())
-        .and_then(|b| parse(&b))
-    else {
-        return false;
-    };
-    let exe_q = quoted(&exe);
-    root.iter().any(|(k, v)| {
-        k.eq_ignore_ascii_case("shortcuts")
-            && matches!(v, Value::Map(list) if list.iter().any(|(_, e)| matches!(e, Value::Map(m) if launches(m, &exe_q))))
-    })
+    match write_artwork(&config, id) {
+        Ok(0) => {}
+        Ok(n) => tracing::info!("added {n} artwork images to the Steam shortcut"),
+        Err(e) => tracing::warn!("could not add Steam artwork: {e}"),
+    }
 }
 
 pub fn steam_running() -> bool {
@@ -322,7 +390,10 @@ pub fn add_romulus(data_dir: &Path) -> Result<String, String> {
     let result = (|| {
         let file = config.join("shortcuts.vdf");
         let existing = std::fs::read(&file).ok();
-        let (bytes, _id) = add_to_vdf(existing.as_deref(), &exe, icon.as_deref())?;
+        let (bytes, id) = add_to_vdf(existing.as_deref(), &exe, icon.as_deref())?;
+        if let Err(e) = write_artwork(&config, id) {
+            tracing::warn!("could not add Steam artwork: {e}");
+        }
         if let Some(old) = &existing {
             // Keep the user's original list once, before we ever touched it.
             let backup = config.join("shortcuts.vdf.romulus-backup");
@@ -378,6 +449,30 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert_eq!(list[1].0, "1");
         assert!(id & 0x8000_0000 != 0);
+    }
+
+    #[test]
+    fn finds_the_shortcut_and_its_id() {
+        let exe = Path::new("/home/deck/Applications/Romulus-x86_64.AppImage");
+        let (bytes, id) = add_to_vdf(None, exe, None).unwrap();
+        let vdf = parse(&bytes).unwrap();
+        assert_eq!(find_shortcut(&vdf, exe), Some(id));
+        assert_eq!(find_shortcut(&vdf, Path::new("/other")), None);
+    }
+
+    #[test]
+    fn artwork_fills_gaps_and_keeps_custom_images() {
+        let d = tempfile::tempdir().unwrap();
+        let grid = d.path().join("grid");
+        std::fs::create_dir_all(&grid).unwrap();
+        std::fs::write(grid.join("123_hero.jpg"), b"mine").unwrap();
+        assert_eq!(write_artwork(d.path(), 123).unwrap(), 4);
+        for f in ["123p.png", "123.png", "123_logo.png", "123_icon.png"] {
+            assert!(grid.join(f).is_file(), "{f}");
+        }
+        assert!(!grid.join("123_hero.png").exists());
+        assert_eq!(std::fs::read(grid.join("123_hero.jpg")).unwrap(), b"mine");
+        assert_eq!(write_artwork(d.path(), 123).unwrap(), 0);
     }
 
     #[test]

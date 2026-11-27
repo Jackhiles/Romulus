@@ -66,6 +66,7 @@ pub fn run() {
             st.input_paused
                 .store(web_gamepad, std::sync::atomic::Ordering::Relaxed);
             input::spawn(handle.clone(), st.input_paused.clone());
+            std::thread::spawn(steam::ensure_artwork);
             if let Some(server) = server {
                 // Open the cached library before the UI asks for it.
                 tauri::async_runtime::block_on(async {
