@@ -327,7 +327,11 @@ fn save_note(outcome: &sync::Result<sync::Outcome>) -> Option<String> {
         }) => Some("uploaded".into()),
         Ok(sync::Outcome::Synced { .. }) => None,
         Ok(sync::Outcome::Conflict(_)) => Some("conflict".into()),
-        Err(sync::Error::Api(romm_api::Error::Network(_))) => Some("offline".into()),
+        // Unreachable, or the server (or the proxy in front of it) failing: try again next time.
+        Err(sync::Error::Api(romm_api::Error::Network(_)))
+        | Err(sync::Error::Api(romm_api::Error::Http {
+            status: 500..=599, ..
+        })) => Some("offline".into()),
         Err(e) => Some(format!("failed: {e}")),
     }
 }
