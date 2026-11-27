@@ -39,7 +39,52 @@ const row = (r: FixtureRom) => {
   return rest
 }
 
+// Events: listeners registered through `plugin:event|listen`, fired by emit().
+const callbacks = new Map<number, (e: unknown) => void>()
+const listeners: { event: string; handler: number }[] = []
+function emit(event: string, payload: unknown) {
+  for (const l of listeners) if (l.event === event) callbacks.get(l.handler)?.({ event, id: 0, payload })
+}
+
+// Device state: one game starts installed, downloads take a few seconds.
+const installed = new Set<number>([lib.roms[0]?.id])
+const downloading = new Map<number, ReturnType<typeof setInterval>>()
+
 const handlers: Record<string, (a: any) => unknown> = {
+  install_status: ({ romId }) =>
+    downloading.has(romId)
+      ? { state: 'downloading' }
+      : installed.has(romId)
+        ? { state: 'installed', size_bytes: 1, path: '/mock' }
+        : { state: 'not_installed' },
+  installed_ids: () => [...installed],
+  download_rom: ({ romId }) => {
+    const total = 700 * 1024 * 1024
+    let done = 0
+    downloading.set(
+      romId,
+      setInterval(() => {
+        done = Math.min(total, done + total / 16)
+        emit('download', { stage: 'progress', rom_id: romId, done, total })
+        if (done >= total) {
+          clearInterval(downloading.get(romId))
+          downloading.delete(romId)
+          installed.add(romId)
+          emit('download', { stage: 'done', rom_id: romId })
+        }
+      }, 250),
+    )
+  },
+  cancel_download: ({ romId }) => {
+    clearInterval(downloading.get(romId))
+    downloading.delete(romId)
+    emit('download', { stage: 'cancelled', rom_id: romId })
+  },
+  remove_rom: ({ romId }) => installed.delete(romId),
+  play_rom: ({ romId }) => {
+    emit('game', { stage: 'started', rom_id: romId })
+    setTimeout(() => emit('game', { stage: 'ended', rom_id: romId, duration_ms: 95 * 60000 }), 2500)
+  },
   status: () => ({
     app_name: 'Romulus',
     version: 'dev',
@@ -96,14 +141,20 @@ const handlers: Record<string, (a: any) => unknown> = {
   open_keyboard: () => null,
   log_ui: ({ level, message }) => console[level === 'error' ? 'error' : 'warn'](message),
   debug_info: () => 'mock',
-  'plugin:event|listen': () => Math.floor(Math.random() * 1e9),
+  'plugin:event|listen': ({ event, handler }) => {
+    listeners.push({ event, handler })
+    return listeners.length
+  },
   'plugin:event|unlisten': () => null,
 }
 
 let cb = 1
 ;(window as any).__TAURI_EVENT_PLUGIN_INTERNALS__ = { unregisterListener: () => {} }
 ;(window as any).__TAURI_INTERNALS__ = {
-  transformCallback: () => cb++,
+  transformCallback: (f: (e: unknown) => void) => {
+    callbacks.set(cb, f)
+    return cb++
+  },
   convertFileSrc: (p: string) => p,
   invoke: async (cmd: string, args: unknown) => {
     const h = handlers[cmd]

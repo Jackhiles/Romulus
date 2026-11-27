@@ -6,6 +6,7 @@
   import type { GamesView, Rom } from '../lib/api'
   import { FocusedDetail } from '../lib/details.svelte'
   import { fileTags } from '../lib/format'
+  import { device } from '../lib/play.svelte'
   import { jumpLetter, letterOf, page, step } from '../lib/grid'
   import { onAction } from '../lib/input'
   import Backdrop from './Backdrop.svelte'
@@ -117,6 +118,7 @@
           {@const t = tagOf(r)}
           <div class="row" class:focused class:dim={!active}>
             <span class="t">{r.title}</span>{#if t}<span class="tag">{t}</span>{/if}
+            {#if device.installed.has(r.id)}<span class="here" title="On this Deck"></span>{/if}
           </div>
         {/snippet}
       </VirtualList>
@@ -199,6 +201,19 @@
     text-overflow: ellipsis;
     font-size: 13px;
     color: var(--muted);
+  }
+  .row .here {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ok);
+  }
+  .row .t + .here {
+    margin-left: auto;
+  }
+  .row.focused .here {
+    background: #fff;
   }
   .row.focused .tag {
     color: rgb(255 255 255 / 0.8);

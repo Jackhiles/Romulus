@@ -170,3 +170,39 @@ export function assetUrl(path: string, wanted: () => boolean = () => true): Prom
   pump()
   return p
 }
+
+// ---- Phase 2: installs and playing --------------------------------------------------
+
+export type InstallStatus =
+  | { state: 'installed'; size_bytes: number; path: string }
+  | { state: 'downloading' }
+  | { state: 'not_installed' }
+  | { state: 'unavailable'; reason: string }
+
+export type DownloadEvent =
+  | { stage: 'progress'; rom_id: number; done: number; total: number }
+  | { stage: 'done'; rom_id: number }
+  | { stage: 'cancelled'; rom_id: number }
+  | { stage: 'failed'; rom_id: number; message: string }
+
+export type GameEvent =
+  | { stage: 'started'; rom_id: number }
+  | { stage: 'ended'; rom_id: number; duration_ms: number }
+  | { stage: 'failed'; rom_id: number; message: string }
+
+export const games = {
+  status: (romId: number) => invoke<InstallStatus>('install_status', { romId }),
+  installedIds: () => invoke<number[]>('installed_ids'),
+  download: (romId: number) => invoke<void>('download_rom', { romId }),
+  cancel: (romId: number) => invoke<void>('cancel_download', { romId }),
+  remove: (romId: number) => invoke<void>('remove_rom', { romId }),
+  play: (romId: number) => invoke<void>('play_rom', { romId }),
+}
+
+export function onDownload(f: (e: DownloadEvent) => void): Promise<UnlistenFn> {
+  return listen<DownloadEvent>('download', (e) => f(e.payload))
+}
+
+export function onGame(f: (e: GameEvent) => void): Promise<UnlistenFn> {
+  return listen<GameEvent>('game', (e) => f(e.payload))
+}

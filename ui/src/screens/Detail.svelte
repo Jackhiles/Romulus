@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import Backdrop from '../components/Backdrop.svelte'
+  import Confirm from '../components/Confirm.svelte'
   import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
   import GameInfo from '../components/GameInfo.svelte'
-  import { api, assetUrl, type RomDetail } from '../lib/api'
+  import { api, assetUrl, games, type InstallStatus, type RomDetail } from '../lib/api'
+  import { device, progressText, removed, startDownload } from '../lib/play.svelte'
   import { screenshots } from '../lib/details.svelte'
   import { hueOf, size } from '../lib/format'
   import { onAction, type Action } from '../lib/input'
@@ -17,6 +19,22 @@
   let rom = $state<RomDetail | null>(null)
   let shots = $state<string[]>([])
   let shot = $state(0)
+  let status = $state<InstallStatus | null>(null)
+  let confirmRemove = $state(false)
+
+  // Re-check whenever an install changes (download finished, removed, ...).
+  $effect(() => {
+    void device.revision
+    const want = id
+    games
+      .status(want)
+      .then((s) => {
+        if (want === id) status = s
+      })
+      .catch((e) => toast(String(e), 'error'))
+  })
+  const progress = $derived(device.downloads[id])
+  const busy = $derived(!!progress || status?.state === 'downloading')
 
   $effect(() => {
     const want = id
@@ -38,14 +56,37 @@
     if (next) id = next
   }
 
-  function play() {
-    toast('Downloading and playing arrive in Phase 2.')
+  function primary() {
+    if (!rom || busy || !status) return
+    if (status.state === 'installed') {
+      device.playingTitle = rom.title
+      games.play(id).catch((e) => toast(String(e), 'error', 6000))
+    } else if (status.state === 'not_installed') {
+      startDownload(id)
+    } else if (status.state === 'unavailable') {
+      toast(status.reason, 'error', 5000)
+    }
+  }
+
+  async function remove() {
+    confirmRemove = false
+    try {
+      await games.remove(id)
+      removed(id)
+      toast('Removed from this Deck. Your saves were not touched.')
+    } catch (e) {
+      toast(String(e), 'error', 6000)
+    }
   }
 
   const off = onAction(({ action }) => {
     switch (action) {
       case 'a':
-        play()
+        primary()
+        return true
+      case 'x':
+        if (busy) games.cancel(id)
+        else if (status?.state === 'installed') confirmRemove = true
         return true
       case 'lb':
       case 'rb':
@@ -61,8 +102,25 @@
   onDestroy(off)
 
   const platform = $derived(typeof rom?.data?.platform_display_name === 'string' ? rom.data.platform_display_name : '')
+  const primaryLabel = $derived.by(() => {
+    if (busy) return 'Downloading…'
+    switch (status?.state) {
+      case 'installed':
+        return '▶ Play'
+      case 'not_installed':
+        return `⬇ Download${rom && rom.size_bytes >= 1024 ? ` · ${size(rom.size_bytes)}` : ''}`
+      case 'unavailable':
+        return 'Not available'
+      default:
+        return '…'
+    }
+  })
+
   const hints = $derived.by(() => {
-    const h: [Action, string][] = [['a', 'Play']]
+    const h: [Action, string][] = []
+    if (status?.state === 'installed') h.push(['a', 'Play'], ['x', 'Remove'])
+    else if (busy) h.push(['x', 'Stop download'])
+    else if (status?.state === 'not_installed') h.push(['a', 'Download'])
     if (shots.length > 1) h.push(['right', 'Screenshots'])
     if (siblings.length > 1) h.push(['rb', 'Next game'])
     h.push(['b', 'Back'])
@@ -81,7 +139,21 @@
         <!-- Multi-disc games report the size of their small playlist file only. -->
         <div class="file">{rom.fs_name}{rom.size_bytes >= 1024 ? ` · ${size(rom.size_bytes)}` : ''}</div>
         <div class="actions">
-          <button class="play" tabindex="-1" onclick={play}>▶ Play</button>
+          {#if busy}
+            <div class="progress">
+              <div class="bar"><div class="fill" style:transform="scaleX({progress?.total ? progress.done / progress.total : 0})"></div></div>
+              <span>{progressText(progress ?? { done: 0, total: 0 })}</span>
+            </div>
+          {:else}
+            <button
+              class="play"
+              class:disabled={status?.state === 'unavailable'}
+              tabindex="-1"
+              onclick={primary}>{primaryLabel}</button
+            >
+            {#if status?.state === 'installed'}<span class="on-device">On this Deck</span>{/if}
+            {#if status?.state === 'unavailable'}<span class="reason">{status.reason}</span>{/if}
+          {/if}
           {#if shots.length > 1}
             <div class="dots">
               {#each shots as _, i (i)}<span class:on={i === shot}></span>{/each}
@@ -93,6 +165,15 @@
   {/if}
 </div>
 <Footer {hints} />
+{#if confirmRemove && rom}
+  <Confirm
+    title="Remove from this Deck?"
+    message={`${rom.title} will be deleted from the SD card. Your saves and save states stay, and you can download it again any time.`}
+    confirm="Remove"
+    onconfirm={remove}
+    oncancel={() => (confirmRemove = false)}
+  />
+{/if}
 
 <style>
   .detail {
@@ -154,6 +235,37 @@
       0 0 0 3px var(--bg),
       0 0 0 6px var(--accent);
     cursor: pointer;
+  }
+  .play.disabled {
+    background: rgb(255 255 255 / 0.12);
+    box-shadow: none;
+    color: var(--muted);
+  }
+  .on-device,
+  .reason {
+    color: var(--muted);
+    font-size: 14px;
+  }
+  .progress {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 360px;
+    color: var(--text-2);
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+  }
+  .bar {
+    height: 10px;
+    border-radius: 5px;
+    background: rgb(255 255 255 / 0.12);
+    overflow: hidden;
+  }
+  .fill {
+    height: 100%;
+    background: var(--accent);
+    transform-origin: left;
+    transition: transform 240ms linear;
   }
   .dots {
     display: flex;

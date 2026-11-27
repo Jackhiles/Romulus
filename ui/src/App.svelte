@@ -1,10 +1,12 @@
 <script lang="ts">
   import { onMount } from 'svelte'
+  import Playing from './components/Playing.svelte'
   import Toasts from './components/Toasts.svelte'
   import { api } from './lib/api'
   import { onAction, setWebGamepad } from './lib/input'
   import { initLibrary, library, refresh } from './lib/library.svelte'
   import { back, current, nav, reset } from './lib/nav.svelte'
+  import { device, initDevice, loadInstalled } from './lib/play.svelte'
   import { toast } from './lib/toast.svelte'
   import Detail from './screens/Detail.svelte'
   import Games from './screens/Games.svelte'
@@ -28,11 +30,13 @@
 
   function signedIn() {
     reset({ name: 'platforms' })
+    loadInstalled()
     refresh()
   }
 
   onMount(async () => {
     initLibrary(toSetup)
+    initDevice()
     try {
       const s = await api.status()
       server = s.server_url ?? ''
@@ -43,6 +47,7 @@
       if (s.server_url && s.signed_in) {
         // Show the cache immediately, then sync in the background.
         reset({ name: 'platforms' })
+        loadInstalled()
         refresh()
       } else {
         toSetup()
@@ -84,4 +89,5 @@
     {/key}
   {/if}
 </div>
+{#if device.playing !== null}<Playing title={device.playingTitle} />{/if}
 <Toasts />
