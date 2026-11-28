@@ -94,6 +94,17 @@ async fn hash_existing(path: &Path, hasher: &mut Sha1) -> std::io::Result<()> {
     }
 }
 
+/// Free and total bytes of the drive holding `dir`.
+pub fn space(dir: &Path) -> std::io::Result<(u64, u64)> {
+    Ok((fs4::available_space(dir)?, fs4::total_space(dir)?))
+}
+
+/// Would `need` more bytes fit on a drive with `free` bytes, leaving the margin every
+/// install keeps?
+pub fn fits(need: u64, free: u64) -> bool {
+    need + SPACE_MARGIN <= free
+}
+
 /// Download everything in `plan` that is not there yet. `progress(done, total)` covers
 /// the whole install. Setting `cancel` stops it, keeping partial files for a resume.
 pub async fn install(
@@ -106,7 +117,7 @@ pub async fn install(
     let total = plan.total_bytes;
     let need = remaining(plan);
     let free = fs4::available_space(system_dir)?;
-    if need + SPACE_MARGIN > free {
+    if !fits(need, free) {
         return Err(Error::NoSpace {
             need_mb: need.div_ceil(1 << 20),
             free_mb: free / (1 << 20),

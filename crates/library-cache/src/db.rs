@@ -132,6 +132,30 @@ pub struct RomRow {
     pub versions: u32,
 }
 
+/// A downloaded game, for the storage screen.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+pub struct InstalledGame {
+    #[serde(flatten)]
+    pub rom: RomRow,
+    pub platform: String,
+    /// Bytes on the device.
+    pub disk_bytes: u64,
+    /// Unix seconds.
+    pub installed_at: i64,
+    /// Last started on this device or (per RomM) anywhere, unix seconds.
+    pub last_played: Option<i64>,
+}
+
+/// Lists of the user's RomM play status.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserList {
+    /// Marked "now playing".
+    Playing,
+    /// In the backlog.
+    Backlog,
+}
+
 /// A play session waiting to be reported to RomM (times are RFC 3339).
 #[derive(Debug, Clone, PartialEq)]
 pub struct QueuedSession {
@@ -711,6 +735,73 @@ impl Cache {
         self.ids("SELECT rom_id FROM download_queue ORDER BY seq")
     }
 
+    /// Store this user's data for a ROM (`rom_user`) as RomM returned it after a change.
+    pub fn set_rom_user(&self, rom_id: i64, user: &serde_json::Value) -> Result<()> {
+        self.conn.execute(
+            "UPDATE roms SET json = json_set(json, '$.rom_user', json(?2)) WHERE id = ?1",
+            params![rom_id, user.to_string()],
+        )?;
+        Ok(())
+    }
+
+    /// This user's data for a ROM (`rom_user`), if RomM sent it.
+    pub fn rom_user(&self, rom_id: i64) -> Result<Option<serde_json::Value>> {
+        let v: Option<String> = self
+            .conn
+            .query_row(
+                "SELECT json_extract(json, '$.rom_user') FROM roms WHERE id = ?1",
+                [rom_id],
+                |r| r.get(0),
+            )
+            .optional()?
+            .flatten();
+        Ok(v.and_then(|s| serde_json::from_str(&s).ok()))
+    }
+
+    /// Games on one of the user's play-status lists, by title.
+    pub fn user_list(&self, list: UserList) -> Result<Vec<RomRow>> {
+        let field = match list {
+            UserList::Playing => "now_playing",
+            UserList::Backlog => "backlogged",
+        };
+        let sql = format!(
+            "{ROM_SELECT} WHERE json_extract(roms.json, '$.rom_user.{field}') = 1
+             ORDER BY roms.sort_key, roms.id"
+        );
+        let mut st = self.conn.prepare_cached(&sql)?;
+        let rows = st
+            .query_map([], rom_row)?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
+    /// Downloaded games with their size on the device, largest first.
+    pub fn installed_games(&self) -> Result<Vec<InstalledGame>> {
+        let sql = "SELECT roms.id, roms.platform_id, roms.title, roms.fs_name, roms.size_bytes,
+                    roms.cover_small, roms.cover_large, roms.updated_at,
+                    COALESCE(json_extract(roms.json, '$.platform_display_name'), ''),
+                    installs.size_bytes, installs.installed_at,
+                    NULLIF(MAX(COALESCE(played.last_played, 0),
+                        COALESCE(unixepoch(json_extract(roms.json, '$.rom_user.last_played')), 0)), 0)
+             FROM installs
+             JOIN roms ON roms.id = installs.rom_id
+             LEFT JOIN played ON played.rom_id = roms.id
+             ORDER BY installs.size_bytes DESC, roms.sort_key";
+        let mut st = self.conn.prepare_cached(sql)?;
+        let rows = st
+            .query_map([], |r| {
+                Ok(InstalledGame {
+                    rom: rom_row(r)?,
+                    platform: r.get(8)?,
+                    disk_bytes: r.get::<_, i64>(9)?.max(0) as u64,
+                    installed_at: r.get(10)?,
+                    last_played: r.get(11)?,
+                })
+            })?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(rows)
+    }
+
     pub fn mark_played_now(&self, rom_id: i64) -> Result<()> {
         self.conn.execute(
             "INSERT INTO played (rom_id, last_played) VALUES (?1, unixepoch())
@@ -988,6 +1079,35 @@ pub(crate) mod tests {
         assert!(ids.contains(&1424) && ids.contains(&7));
         assert_eq!(c.group_of(1426).unwrap().unwrap().parts, vec![1425, 1426]);
         assert_eq!(c.search("alone", 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn play_status_lists_and_storage() {
+        let mut c = Cache::open_in_memory().unwrap();
+        c.upsert_roms(&[rom(1, 1, "Beta"), rom(2, 1, "Alpha"), rom(3, 1, "Gamma")])
+            .unwrap();
+        assert!(c.user_list(UserList::Playing).unwrap().is_empty());
+        assert_eq!(c.rom_user(1).unwrap(), None);
+        let user =
+            json!({"now_playing": true, "backlogged": false, "status": "incomplete", "rating": 8});
+        c.set_rom_user(1, &user).unwrap();
+        c.set_rom_user(2, &json!({"now_playing": true, "backlogged": true}))
+            .unwrap();
+        assert_eq!(c.rom_user(1).unwrap().unwrap()["rating"], 8);
+        let ids = |v: Vec<RomRow>| v.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(ids(c.user_list(UserList::Playing).unwrap()), [2, 1]);
+        assert_eq!(ids(c.user_list(UserList::Backlog).unwrap()), [2]);
+        // The rest of the game's data is kept.
+        assert_eq!(c.rom(1).unwrap().unwrap().1["name"], "Beta");
+
+        c.set_install(1, "{}", 100).unwrap();
+        c.set_install(3, "{}", 900).unwrap();
+        c.mark_played_now(1).unwrap();
+        let games = c.installed_games().unwrap();
+        assert_eq!(games.iter().map(|g| g.rom.id).collect::<Vec<_>>(), [3, 1]);
+        assert_eq!(games[0].disk_bytes, 900);
+        assert_eq!(games[0].last_played, None);
+        assert!(games[1].last_played.is_some());
     }
 
     #[test]

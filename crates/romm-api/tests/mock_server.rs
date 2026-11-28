@@ -480,3 +480,24 @@ async fn reads_retroachievements_progress() {
     assert_eq!(user, "jackra");
     assert_eq!(p.results[0].earned_achievements[0].id, "87992");
 }
+
+#[tokio::test]
+async fn updates_play_status() {
+    let s = MockServer::start().await;
+    Mock::given(method("PUT"))
+        .and(path("/api/roms/42/props"))
+        .and(body_string_contains("\"now_playing\":true"))
+        .and(body_string_contains("\"status\":null"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(
+            json!({"id": 1, "rom_id": 42, "now_playing": true, "backlogged": false, "status": null, "rating": 0}),
+        ))
+        .expect(1)
+        .mount(&s)
+        .await;
+    let c = client(&s).await;
+    let u = c
+        .update_rom_user(42, &json!({"now_playing": true, "status": null}))
+        .await
+        .unwrap();
+    assert_eq!(u["now_playing"], true);
+}

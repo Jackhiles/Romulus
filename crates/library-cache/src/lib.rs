@@ -10,7 +10,10 @@ pub mod group;
 mod refresh;
 
 pub use covers::CoverCache;
-pub use db::{Cache, CollectionRow, DiscoverPool, PlatformRow, QueuedSession, RomRow, SortOrder};
+pub use db::{
+    Cache, CollectionRow, DiscoverPool, InstalledGame, PlatformRow, QueuedSession, RomRow,
+    SortOrder, UserList,
+};
 pub use refresh::{RefreshProgress, RefreshStats, refresh};
 
 #[derive(Debug, thiserror::Error)]

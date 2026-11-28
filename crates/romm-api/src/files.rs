@@ -118,6 +118,24 @@ impl Client {
         Ok(())
     }
 
+    /// Change this user's data for a ROM (`RomUserData`: `now_playing`, `backlogged`,
+    /// `status`, `rating` 0-10, ...). Only the fields in `patch` change; `"status": null`
+    /// clears the status. Returns the new `rom_user` (`RomUserSchema`).
+    pub async fn update_rom_user(
+        &self,
+        rom_id: i64,
+        patch: &serde_json::Value,
+    ) -> Result<serde_json::Value> {
+        let resp = self
+            .send(|| {
+                Ok(self
+                    .request(Method::PUT, &format!("/api/roms/{rom_id}/props"))?
+                    .json(patch))
+            })
+            .await?;
+        resp.json().await.map_err(|e| Error::Decode(e.to_string()))
+    }
+
     /// Report finished play sessions.
     pub async fn report_play_sessions(
         &self,
