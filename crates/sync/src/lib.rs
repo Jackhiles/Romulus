@@ -6,10 +6,12 @@
 //! - [`local`]: reading, packing, backing up and applying the save on the device.
 //! - [`run`]: syncing before and after a play session.
 //! - [`duckstation`]: which memory card file DuckStation uses for a game.
+//! - [`disc`]: GameCube and Wii disc IDs, for Dolphin's save names.
 //! - [`states`]: save state files, synced one by one.
 //!
 //! Saves on the device are never overwritten or removed without a backup first.
 
+pub mod disc;
 pub mod duckstation;
 pub mod emulator;
 pub mod engine;

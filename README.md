@@ -7,7 +7,8 @@ and keep saves, states and BIOS in sync.
 
 Status: **browsing, downloading, playing through RetroDECK and save sync work on a Deck.**
 Saves sync for RetroArch systems (PS1 with SwanStation, N64, GBA, NDS, ...), PS1 with
-DuckStation (interchangeable with SwanStation's), PS2 (PCSX2) and PSP (PPSSPP); save
+DuckStation (interchangeable with SwanStation's), PS2 (PCSX2), PSP (PPSSPP), GameCube
+and Wii (Dolphin) and Wii U (Cemu); save
 states sync too, between devices using the same emulator. Your RomM collections and
 Favourites show on the systems screen. BIOS files come from RomM; RetroAchievements
 progress shows per game; games play their soundtrack (from RomM or your own music

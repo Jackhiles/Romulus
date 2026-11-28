@@ -146,6 +146,16 @@ pub fn locate(
                 affix(format!("{serial}_"), ".sav"),
             )
         }
+        Emulator::Dolphin => {
+            // `GM8E01.s01` … `.s10` in Dolphin's StateSaves folder.
+            let disc =
+                crate::disc::read(launch).ok_or("Romulus couldn't read this game's disc ID")?;
+            set(
+                dirs.dolphin_user.join("StateSaves"),
+                affix(format!("{}.s", disc.id), ""),
+            )
+        }
+        Emulator::Cemu => Err("Cemu has no save states".into()),
         Emulator::Other { label } => Err(format!("state sync for {label} isn't supported yet")),
     }
 }
@@ -484,6 +494,10 @@ mod tests {
             ppsspp_memstick: PathBuf::from("/cfg/ppsspp"),
             duckstation: PathBuf::from("/cfg/duckstation"),
             duckstation_gamedb: PathBuf::from("/x"),
+            dolphin_ini: PathBuf::from("/x"),
+            dolphin_user: PathBuf::from("/data/dolphin-emu"),
+            cemu_settings: PathBuf::from("/x"),
+            flatpak_data: PathBuf::from("/data"),
         };
         let swan = Emulator::RetroArch {
             core: "swanstation".into(),

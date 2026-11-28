@@ -140,5 +140,25 @@ backup.
   `PSP/PPSSPP_STATE` → `states/PSP/PPSSPP-SA`, `<ID>_1.00_N.ppst`; DuckStation
   `config/duckstation/savestates` → `states/psx/duckstation`, `<serial>_N.sav`. None on
   the Deck yet (2026-11-27). RomM had 7 states, all from its web player.
+- GameCube (Dolphin, 2026-11-28): `Dolphin.ini` has `[Core] SlotA = 8` (GCI folder).
+  `data/dolphin-emu/GC/{USA,EUR,JAP}` link to `saves/gc/dolphin/{US,EU,JP}`; a real save
+  is `US/Card A/01-GM8E-MetroidPrime A.gci` (`<maker>-<game code>-<name>.gci`). RomM's
+  `save_target` is the game code (`GAFE`, `file-prefix`) for ISOs but `CISO` for every
+  `.ciso` image, so Romulus reads the code from the disc header instead (Metroid
+  Prime.iso starts `GM8E01`).
+- Wii (Dolphin): `[General] NANDRootPath = /var/data/dolphin-emu/Wii/` (inside the
+  flatpak; `data/dolphin-emu/Wii` links to `saves/wii/dolphin`). A game's save is
+  `title/00010000/<code as hex>/data`; RomM's target is that hex (`524d4345` for RMCE,
+  `folder-exact`) for all 18 Wii games.
+- Wii U (Cemu): `settings.xml` `<mlc_path>` is `bios/cemu`, whose `usr/save` links to
+  `saves/wiiu/cemu`; saves are `usr/save/00050000/<title>`, and RomM's target is that
+  title (`10102000`, `folder-exact`) for 6 of 7 games (not the `.wux`).
+- NDS: RetroArch's DeSmuME core (RetroDECK's default) keeps `<game>.dsv`, not `.srm`; RomM
+  has one (`retroarch-desmume`, 8314 bytes: 8 KB plus DeSmuME's 122-byte footer).
+- Dreamcast: RetroArch's Flycast has no per-game VMU option set, so every game shares
+  `bios/dc/vmu_save_A1.bin`; it can't sync per game. RomM's DC targets are serials
+  (`MK-51035`, `file-prefix`).
+- Vita (Vita3K): games must be installed into Vita3K first and RomM has no
+  `save_target` for them; not synced.
 - BIOS: RomM's 23 PS1/PS2 files are all in `bios/` and match RomM's md5; GBA's
   `gba_bios.bin` is missing; Switch and Xbox firmware need their own layouts.

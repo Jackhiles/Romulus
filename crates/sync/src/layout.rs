@@ -18,11 +18,18 @@ pub struct Dirs {
     pub duckstation: PathBuf,
     /// DuckStation's game database (`gamedb.yaml`), for its memory card names.
     pub duckstation_gamedb: PathBuf,
+    pub dolphin_ini: PathBuf,
+    /// Dolphin's user folder (`GC`, `Wii`, `StateSaves`).
+    pub dolphin_user: PathBuf,
+    pub cemu_settings: PathBuf,
+    /// RetroDECK's flatpak data folder, which its emulators see as `/var/data`.
+    pub flatpak_data: PathBuf,
 }
 
 impl Dirs {
     pub fn retrodeck(home: &Path, saves: PathBuf) -> Self {
         let cfg = home.join(".var/app/net.retrodeck.retrodeck/config");
+        let data = home.join(".var/app/net.retrodeck.retrodeck/data");
         Self {
             saves,
             retroarch_cfg: cfg.join("retroarch/retroarch.cfg"),
@@ -34,6 +41,18 @@ impl Dirs {
                 home,
                 "retrodeck/components/duckstation/bin/resources/gamedb.yaml",
             ),
+            dolphin_ini: cfg.join("dolphin-emu/Dolphin.ini"),
+            dolphin_user: data.join("dolphin-emu"),
+            cemu_settings: cfg.join("Cemu/settings.xml"),
+            flatpak_data: data,
+        }
+    }
+
+    /// A path from an emulator's settings, as seen from outside the flatpak.
+    pub fn host_path(&self, p: &str) -> PathBuf {
+        match p.strip_prefix("/var/data/") {
+            Some(rest) => self.flatpak_data.join(rest),
+            None => PathBuf::from(p),
         }
     }
 }
@@ -153,6 +172,38 @@ const PSX_CARD_CORES: &[&str] = &[
 ];
 const PSX_CARD: &[&str] = &["srm", "mcd"];
 
+/// `<tag>value</tag>` (Cemu's settings.xml).
+fn xml_value(text: &str, tag: &str) -> Option<String> {
+    let start = text.find(&format!("<{tag}>"))? + tag.len() + 2;
+    let end = start + text[start..].find(&format!("</{tag}>"))?;
+    let v = text[start..end].trim();
+    (!v.is_empty()).then(|| v.to_string())
+}
+
+/// RomM's `folder-exact` target: a title ID's low half, 8 hex digits.
+fn title_id(save_target: Option<&str>, layout: Option<&str>) -> Option<String> {
+    match (save_target, layout) {
+        (Some(t), Some("folder-exact"))
+            if t.len() == 8 && t.bytes().all(|c| c.is_ascii_hexdigit()) =>
+        {
+            Some(t.to_ascii_lowercase())
+        }
+        _ => None,
+    }
+}
+
+/// A save kept as a zip of files on RomM.
+fn zipped(spec: SaveSpec, emu: &Emulator) -> Located {
+    Located {
+        spec,
+        emulator: emu.romm_name(),
+        upload_name: "autosave.zip".into(),
+        exts: &["zip"],
+        warning: None,
+        pcsx2_card: false,
+    }
+}
+
 /// `key = "value"` lines (retroarch.cfg).
 pub(crate) fn cfg_value(text: &str, key: &str) -> Option<String> {
     text.lines().find_map(|l| {
@@ -189,6 +240,10 @@ pub fn locate(
     layout: Option<&str>,
 ) -> Result<Located, String> {
     match emu {
+        Emulator::RetroArch { core } if core == "flycast" => Err(
+            "Flycast keeps one VMU for every Dreamcast game, so its saves can't sync per game"
+                .into(),
+        ),
         Emulator::RetroArch { core } if NON_SRM_CORES.contains(&core.as_str()) => Err(format!(
             "save sync for RetroArch's {core} core isn't supported yet"
         )),
@@ -258,17 +313,21 @@ pub fn locate(
                 .ok_or("game has no file name")?
                 .to_string_lossy()
                 .into_owned();
+            // DeSmuME keeps its own `.dsv` (the save plus a 122-byte footer).
+            let (ext, exts): (&str, &'static [&'static str]) = if core.starts_with("desmume") {
+                ("dsv", &["dsv"])
+            } else if PSX_CARD_CORES.contains(&core.as_str()) {
+                ("srm", PSX_CARD)
+            } else {
+                ("srm", &["srm"])
+            };
             Ok(Located {
                 spec: SaveSpec::File {
-                    path: dir.join(format!("{stem}.srm")),
+                    path: dir.join(format!("{stem}.{ext}")),
                 },
                 emulator: emu.romm_name(),
-                upload_name: format!("{stem}.srm"),
-                exts: if PSX_CARD_CORES.contains(&core.as_str()) {
-                    PSX_CARD
-                } else {
-                    &["srm"]
-                },
+                upload_name: format!("{stem}.{ext}"),
+                exts,
                 warning: None,
                 pcsx2_card: false,
             })
@@ -309,6 +368,60 @@ pub fn locate(
                 pcsx2_card: true,
             })
         }
+        Emulator::Dolphin => {
+            let ini = std::fs::read_to_string(&dirs.dolphin_ini).unwrap_or_default();
+            let disc = crate::disc::read(launch);
+            let wii = match &disc {
+                Some(d) => d.wii,
+                None => layout == Some("folder-exact"),
+            };
+            if wii {
+                let title = disc
+                    .as_ref()
+                    .map(|d| d.wii_title())
+                    .or_else(|| title_id(save_target, layout))
+                    .ok_or("Romulus couldn't read this Wii game's ID")?;
+                let nand = ini_value(&ini, "General", "NANDRootPath")
+                    .filter(|p| !p.is_empty())
+                    .map(|p| dirs.host_path(&p))
+                    .unwrap_or_else(|| dirs.dolphin_user.join("Wii"));
+                let dir = nand.join("title/00010000").join(title).join("data");
+                return Ok(zipped(SaveSpec::Folder { dir }, emu));
+            }
+            match ini_value(&ini, "Core", "SlotA").as_deref() {
+                None | Some("8") => {}
+                Some("1") => {
+                    return Err("Dolphin uses a memory card file in slot A; per-game sync needs its GCI folder".into());
+                }
+                Some(_) => return Err("Dolphin has no memory card in slot A".into()),
+            }
+            let code = disc
+                .map(|d| d.code().to_string())
+                .or_else(|| {
+                    save_target
+                        .filter(|t| layout == Some("file-prefix") && crate::disc::valid_code(t))
+                        .map(str::to_string)
+                })
+                .ok_or("Romulus couldn't read this GameCube game's ID")?;
+            let dir = ini_value(&ini, "Core", "GCIFolderAPathOverride")
+                .filter(|p| !p.is_empty())
+                .map(|p| dirs.host_path(&p))
+                .unwrap_or_else(|| {
+                    dirs.dolphin_user
+                        .join("GC")
+                        .join(crate::disc::gc_region(&code))
+                        .join("Card A")
+                });
+            Ok(zipped(SaveSpec::GciFiles { dir, game_id: code }, emu))
+        }
+        Emulator::Cemu => {
+            let xml = std::fs::read_to_string(&dirs.cemu_settings).unwrap_or_default();
+            let mlc = xml_value(&xml, "mlc_path").ok_or("Cemu's MLC folder isn't set")?;
+            let title = title_id(save_target, layout)
+                .ok_or("RomM doesn't know this Wii U game's title ID")?;
+            let dir = dirs.host_path(&mlc).join("usr/save/00050000").join(title);
+            Ok(zipped(SaveSpec::Folder { dir }, emu))
+        }
         Emulator::Other { label } => Err(format!("save sync for {label} isn't supported yet")),
     }
 }
@@ -327,6 +440,10 @@ mod tests {
             ppsspp_memstick: d.join("ppsspp"),
             duckstation: d.join("duckstation"),
             duckstation_gamedb: d.join("gamedb.yaml"),
+            dolphin_ini: d.join("Dolphin.ini"),
+            dolphin_user: d.join("data/dolphin-emu"),
+            cemu_settings: d.join("cemu.xml"),
+            flatpak_data: d.join("data"),
         }
     }
 
@@ -374,6 +491,193 @@ mod tests {
             core: "snes9x".into(),
         };
         assert_eq!(locate(&snes, game, &ds, None, None).unwrap().exts, ["srm"]);
+    }
+
+    fn disc_image(path: &Path, id: &str, wii: bool) {
+        let mut h = vec![0u8; 0x40];
+        h[..6].copy_from_slice(id.as_bytes());
+        let (at, magic) = if wii {
+            (0x18, 0x5D1C_9EA3u32)
+        } else {
+            (0x1C, 0xC233_9F3Du32)
+        };
+        h[at..at + 4].copy_from_slice(&magic.to_be_bytes());
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, h).unwrap();
+    }
+
+    #[test]
+    fn dolphin_gamecube_uses_the_games_gci_files() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        // RetroDECK's Dolphin.ini on the Deck.
+        std::fs::write(
+            &ds.dolphin_ini,
+            "[Core]\nSlotA = 8\nSlotB = 255\n[General]\nNANDRootPath = /var/data/dolphin-emu/Wii/\n",
+        )
+        .unwrap();
+        let game = d.path().join("roms/gc/Metroid Prime/Metroid Prime.iso");
+        disc_image(&game, "GM8E01", false);
+        let l = locate(
+            &Emulator::Dolphin,
+            &game,
+            &ds,
+            Some("GM8E"),
+            Some("file-prefix"),
+        )
+        .unwrap();
+        assert_eq!(
+            l.spec,
+            SaveSpec::GciFiles {
+                dir: d.path().join("data/dolphin-emu/GC/USA/Card A"),
+                game_id: "GM8E".into()
+            }
+        );
+        assert_eq!((l.emulator.as_str(), l.exts), ("dolphin", &["zip"][..]));
+
+        // RomM reports "CISO" for compressed images; the disc header is read instead,
+        // and without a readable header that target isn't trusted.
+        let ciso = d.path().join("roms/gc/Batman (Europe).ciso");
+        let mut b = vec![0u8; 0x8000];
+        b.extend(&std::fs::read(&game).unwrap());
+        std::fs::write(&ciso, b).unwrap();
+        let l = locate(
+            &Emulator::Dolphin,
+            &ciso,
+            &ds,
+            Some("CISO"),
+            Some("file-prefix"),
+        )
+        .unwrap();
+        assert!(matches!(l.spec, SaveSpec::GciFiles { ref game_id, .. } if game_id == "GM8E"));
+        let missing = d.path().join("roms/gc/Gone.ciso");
+        assert!(
+            locate(
+                &Emulator::Dolphin,
+                &missing,
+                &ds,
+                Some("CISO"),
+                Some("file-prefix")
+            )
+            .is_err()
+        );
+        let l = locate(
+            &Emulator::Dolphin,
+            &missing,
+            &ds,
+            Some("GM8P"),
+            Some("file-prefix"),
+        )
+        .unwrap();
+        assert!(
+            matches!(l.spec, SaveSpec::GciFiles { ref dir, .. } if dir.ends_with("GC/EUR/Card A"))
+        );
+
+        // A memory card file can't be split per game.
+        std::fs::write(&ds.dolphin_ini, "[Core]\nSlotA = 1\n").unwrap();
+        assert!(locate(&Emulator::Dolphin, &game, &ds, None, None).is_err());
+    }
+
+    #[test]
+    fn dolphin_wii_uses_the_titles_nand_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        std::fs::write(
+            &ds.dolphin_ini,
+            "[General]\nNANDRootPath = /var/data/dolphin-emu/Wii/\n",
+        )
+        .unwrap();
+        let game = d.path().join("roms/wii/Mario Kart Wii.wbfs");
+        let mut b = vec![0u8; 0x200];
+        disc_image(&d.path().join("h"), "RMCE01", true);
+        b.extend(std::fs::read(d.path().join("h")).unwrap());
+        std::fs::create_dir_all(game.parent().unwrap()).unwrap();
+        std::fs::write(&game, b).unwrap();
+        let want = SaveSpec::Folder {
+            dir: d
+                .path()
+                .join("data/dolphin-emu/Wii/title/00010000/524d4345/data"),
+        };
+        let l = locate(
+            &Emulator::Dolphin,
+            &game,
+            &ds,
+            Some("524d4345"),
+            Some("folder-exact"),
+        )
+        .unwrap();
+        assert_eq!(l.spec, want);
+        // Without a readable image, RomM's title ID.
+        let gone = d.path().join("roms/wii/Gone.gcz");
+        let l = locate(
+            &Emulator::Dolphin,
+            &gone,
+            &ds,
+            Some("524D4345"),
+            Some("folder-exact"),
+        )
+        .unwrap();
+        assert_eq!(l.spec, want);
+    }
+
+    #[test]
+    fn cemu_uses_the_titles_save_folder() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        let game = Path::new("/sd/retrodeck/roms/wiiu/Nintendo Land.wua");
+        assert!(
+            locate(
+                &Emulator::Cemu,
+                game,
+                &ds,
+                Some("10102000"),
+                Some("folder-exact")
+            )
+            .is_err()
+        );
+        std::fs::write(
+            &ds.cemu_settings,
+            "<content>\n    <mlc_path>/sd/retrodeck/bios/cemu</mlc_path>\n</content>",
+        )
+        .unwrap();
+        let l = locate(
+            &Emulator::Cemu,
+            game,
+            &ds,
+            Some("10102000"),
+            Some("folder-exact"),
+        )
+        .unwrap();
+        assert_eq!(
+            l.spec,
+            SaveSpec::Folder {
+                dir: PathBuf::from("/sd/retrodeck/bios/cemu/usr/save/00050000/10102000")
+            }
+        );
+        assert!(locate(&Emulator::Cemu, game, &ds, None, None).is_err());
+    }
+
+    #[test]
+    fn desmume_keeps_dsv_files_and_flycast_is_explained() {
+        let d = tempfile::tempdir().unwrap();
+        let ds = dirs(d.path(), "", "");
+        let game = Path::new("/sd/retrodeck/roms/nds/Club House Games.nds");
+        let desmume = Emulator::RetroArch {
+            core: "desmume".into(),
+        };
+        let l = locate(&desmume, game, &ds, None, None).unwrap();
+        assert_eq!(
+            (l.upload_name.as_str(), l.exts),
+            ("Club House Games.dsv", &["dsv"][..])
+        );
+        let flycast = Emulator::RetroArch {
+            core: "flycast".into(),
+        };
+        assert!(
+            locate(&flycast, game, &ds, None, None)
+                .unwrap_err()
+                .contains("VMU")
+        );
     }
 
     #[test]

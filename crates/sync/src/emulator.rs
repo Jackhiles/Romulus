@@ -14,7 +14,11 @@ pub enum Emulator {
     Pcsx2,
     Ppsspp,
     DuckStation,
-    /// Anything else, by its ES-DE label (e.g. "DuckStation (Standalone)").
+    /// GameCube and Wii.
+    Dolphin,
+    /// Wii U.
+    Cemu,
+    /// Anything else, by its ES-DE label (e.g. "Vita3K (Standalone)").
     Other {
         label: String,
     },
@@ -28,6 +32,8 @@ impl Emulator {
             Emulator::Pcsx2 => "pcsx2".into(),
             Emulator::Ppsspp => "ppsspp".into(),
             Emulator::DuckStation => "duckstation".into(),
+            Emulator::Dolphin => "dolphin".into(),
+            Emulator::Cemu => "cemu".into(),
             Emulator::Other { label } => label
                 .to_lowercase()
                 .split(|c: char| !c.is_ascii_alphanumeric())
@@ -43,6 +49,8 @@ impl Emulator {
             Emulator::Pcsx2 => "PCSX2".into(),
             Emulator::Ppsspp => "PPSSPP".into(),
             Emulator::DuckStation => "DuckStation".into(),
+            Emulator::Dolphin => "Dolphin".into(),
+            Emulator::Cemu => "Cemu".into(),
             Emulator::Other { label } => label.clone(),
         }
     }
@@ -66,6 +74,12 @@ impl Emulator {
         }
         if command.contains("%EMULATOR_DUCKSTATION%") {
             return Emulator::DuckStation;
+        }
+        if command.contains("%EMULATOR_DOLPHIN%") {
+            return Emulator::Dolphin;
+        }
+        if command.contains("%EMULATOR_CEMU%") {
+            return Emulator::Cemu;
         }
         Emulator::Other {
             label: label.to_string(),
