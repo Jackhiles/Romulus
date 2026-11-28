@@ -2,7 +2,7 @@ name: Release
 
 # Push a tag like v0.2.0 (matching the version in Cargo.toml) to publish a release, or one
 # like v0.2.0-test1 for a pre-release test build. The app's updater (crates/updater)
-# downloads the two files named below from the latest non-pre-release.
+# downloads the AppImage or Flatpak named below (and its .sha256) from the latest non-pre-release.
 #
 # It can also be started by hand (Actions → Release → Run workflow) with a tag name; the
 # release then creates that tag on the commit it was run from.
@@ -49,12 +49,22 @@ jobs:
         run: |
           (cd ui && npm ci && npm test)
           cargo test --workspace --release
-      - name: Build AppImage
-        run: ui/node_modules/.bin/tauri build --bundles appimage
+      - name: Build AppImage and .deb
+        run: ui/node_modules/.bin/tauri build --bundles appimage,deb
       - name: Name the files for the updater
         run: |
           cp target/release/bundle/appimage/*.AppImage Romulus-x86_64.AppImage
           sha256sum Romulus-x86_64.AppImage > Romulus-x86_64.AppImage.sha256
+      # The Flatpak wraps the .deb's binary on the GNOME runtime (flatpak/README.md).
+      - name: Build Flatpak
+        run: |
+          sudo apt-get install -y flatpak flatpak-builder
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          cp target/release/bundle/deb/*.deb flatpak/romulus.deb
+          id=$(basename flatpak/*.yml .yml)
+          flatpak-builder --user --install-deps-from=flathub --disable-rofiles-fuse --force-clean             --repo=flatpak-repo flatpak-build "flatpak/$id.yml"
+          flatpak build-bundle flatpak-repo Romulus-x86_64.flatpak "$id"             --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakrepo
+          sha256sum Romulus-x86_64.flatpak > Romulus-x86_64.flatpak.sha256
       - uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.TAG }}
@@ -62,6 +72,8 @@ jobs:
           files: |
             Romulus-x86_64.AppImage
             Romulus-x86_64.AppImage.sha256
+            Romulus-x86_64.flatpak
+            Romulus-x86_64.flatpak.sha256
           generate_release_notes: true
           # Tags with a dash (v0.1.2-test1) are test builds: pre-releases, which the updater ignores.
           prerelease: ${{ contains(env.TAG, '-') }}

@@ -106,7 +106,7 @@
       : release
         ? { label: 'Update', value: installing ? `Installing ${installing}` : `Install version ${release.version}`, run: installUpdate }
         : { label: 'Updates', value: checking ? 'Checking…' : `Version ${status.version} · check now`, run: checkUpdate }
-    if (!status.updatable && !installed && release) updateRow.value = `Version ${release.version} available (updates only work in the AppImage)`
+    if (!status.updatable && !installed && release) updateRow.value = `Version ${release.version} available (updates only work in the AppImage or Flatpak)`
     return [
       { label: 'Server', value: status.server_url ?? 'not set' },
       {

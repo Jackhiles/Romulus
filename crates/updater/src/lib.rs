@@ -6,9 +6,14 @@
 //! `.sha256` asset, the running file is renamed out of the way and the new one takes its
 //! place. The old copy is deleted on the next start ([`cleanup`]).
 //!
-//! Only AppImage builds update (`$APPIMAGE` is set by the AppImage runtime). Builds run
-//! from a Cargo `target` folder never do. Pre-releases (tags with a `-`, such as
-//! `v0.3.0-test1`) are never returned by GitHub's `releases/latest`, so they are ignored.
+//! In a Flatpak the release's `.flatpak` bundle is downloaded instead (checked the same
+//! way) and installed over this one with `flatpak install --reinstall --bundle` on the
+//! host; the app's data in `~/.var/app` stays.
+//!
+//! Only AppImage and Flatpak builds update (`$APPIMAGE` is set by the AppImage runtime,
+//! `/.flatpak-info` exists in a Flatpak sandbox). Builds run from a Cargo `target`
+//! folder never do. Pre-releases (tags with a `-`, such as `v0.3.0-test1`) are never
+//! returned by GitHub's `releases/latest`, so they are ignored.
 
 use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
@@ -16,8 +21,10 @@ use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
 use tokio::io::AsyncWriteExt;
 
-/// Release asset the updater installs.
+/// Release asset the AppImage updates from.
 pub const ASSET_NAME: &str = "Romulus-x86_64.AppImage";
+/// Release asset the Flatpak updates from.
+pub const FLATPAK_ASSET: &str = "Romulus-x86_64.flatpak";
 /// Smallest plausible AppImage; anything smaller is an error page or a cut-off download.
 const MIN_SIZE: u64 = 1024 * 1024;
 
@@ -35,6 +42,8 @@ pub enum Error {
     TooSmall(u64),
     #[error("the download is damaged (checksum mismatch)")]
     Checksum,
+    #[error("flatpak couldn't install the update: {0}")]
+    Flatpak(String),
 }
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -92,6 +101,19 @@ pub fn is_appimage() -> bool {
     std::env::var_os("APPIMAGE").is_some_and(|p| !p.is_empty())
 }
 
+pub fn is_flatpak() -> bool {
+    Path::new("/.flatpak-info").exists()
+}
+
+/// The release asset this copy updates from.
+pub fn asset_name() -> &'static str {
+    if is_flatpak() {
+        FLATPAK_ASSET
+    } else {
+        ASSET_NAME
+    }
+}
+
 /// A developer build (run from Cargo's `target` folder) is never replaced.
 pub fn is_dev_build() -> bool {
     program_path()
@@ -101,10 +123,12 @@ pub fn is_dev_build() -> bool {
 
 /// Can this copy update itself? `Err` says why not.
 pub fn updatable() -> std::result::Result<(), &'static str> {
-    if is_dev_build() {
+    if is_flatpak() {
+        Ok(())
+    } else if is_dev_build() {
         Err("development build")
     } else if !is_appimage() {
-        Err("not running as an AppImage")
+        Err("not running as an AppImage or Flatpak")
     } else {
         Ok(())
     }
@@ -132,8 +156,18 @@ async fn get_release(http: &reqwest::Client, url: &str) -> Result<GhRelease> {
     resp.json().await.map_err(|e| Error::Decode(e.to_string()))
 }
 
-/// The latest release, if it is newer than `current` and has the AppImage asset.
+/// The latest release, if it is newer than `current` and has this copy's asset.
 pub async fn check(http: &reqwest::Client, src: &Source, current: &str) -> Result<Option<Release>> {
+    check_for(http, src, current, asset_name()).await
+}
+
+/// [`check`] for a given release asset.
+pub async fn check_for(
+    http: &reqwest::Client,
+    src: &Source,
+    current: &str,
+    asset: &str,
+) -> Result<Option<Release>> {
     let r = get_release(
         http,
         &format!("{}/repos/{}/releases/latest", src.api_base, src.repo),
@@ -148,13 +182,13 @@ pub async fn check(http: &reqwest::Client, src: &Source, current: &str) -> Resul
             .find(|a| a.name == name)
             .map(|a| a.browser_download_url.clone())
     };
-    let Some(url) = find(ASSET_NAME) else {
+    let Some(url) = find(asset) else {
         return Ok(None);
     };
     Ok(Some(Release {
         version: r.tag_name.trim_start_matches(['v', 'V']).to_string(),
         url,
-        sha256_url: find(&format!("{ASSET_NAME}.sha256")),
+        sha256_url: find(&format!("{asset}.sha256")),
         notes: r.body.clone().unwrap_or_default(),
     }))
 }
@@ -275,14 +309,79 @@ pub async fn install_to(
     Ok(target.to_path_buf())
 }
 
-/// [`install_to`] the running AppImage.
+/// [`install_to`] the running AppImage, or download and install the Flatpak bundle.
 pub async fn install(
     http: &reqwest::Client,
     r: &Release,
     progress: impl Fn(u64, Option<u64>),
 ) -> Result<PathBuf> {
     updatable().map_err(Error::NotUpdatable)?;
+    if is_flatpak() {
+        return install_flatpak(http, r, progress).await;
+    }
     install_to(http, r, &program_path()?, progress).await
+}
+
+/// Was this Flatpak installed for the user (`~/.local/share/flatpak`), not system-wide?
+fn flatpak_user_install(info: &str) -> bool {
+    info.lines()
+        .find_map(|l| l.strip_prefix("app-path="))
+        .is_none_or(|p| p.contains("/.local/share/flatpak/"))
+}
+
+/// The host command that installs `bundle` over this Flatpak.
+fn flatpak_install_args(info: &str, bundle: &Path) -> Vec<String> {
+    let scope = if flatpak_user_install(info) {
+        "--user"
+    } else {
+        "--system"
+    };
+    [
+        "--host",
+        "flatpak",
+        "install",
+        scope,
+        "--noninteractive",
+        "--reinstall",
+        "--bundle",
+    ]
+    .iter()
+    .map(|s| s.to_string())
+    .chain([bundle.to_string_lossy().into_owned()])
+    .collect()
+}
+
+async fn install_flatpak(
+    http: &reqwest::Client,
+    r: &Release,
+    progress: impl Fn(u64, Option<u64>),
+) -> Result<PathBuf> {
+    // The cache folder is under ~/.var/app, the same path inside and outside the sandbox.
+    let dir = std::env::var_os("XDG_CACHE_HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    std::fs::create_dir_all(&dir)?;
+    let bundle = dir.join(FLATPAK_ASSET);
+    install_to(http, r, &bundle, progress).await?;
+    let info = std::fs::read_to_string("/.flatpak-info").unwrap_or_default();
+    let args = flatpak_install_args(&info, &bundle);
+    let out = tokio::process::Command::new("flatpak-spawn")
+        .args(&args)
+        .output()
+        .await?;
+    let _ = std::fs::remove_file(&bundle);
+    let _ = std::fs::remove_file(old_copy(&bundle));
+    if !out.status.success() {
+        let err = String::from_utf8_lossy(&out.stderr);
+        let last = err
+            .lines()
+            .rev()
+            .find(|l| !l.trim().is_empty())
+            .unwrap_or("");
+        return Err(Error::Flatpak(last.trim().to_string()));
+    }
+    tracing::info!("installed Romulus {} (Flatpak)", r.version);
+    Ok(bundle)
 }
 
 #[cfg(test)]
@@ -331,6 +430,32 @@ mod tests {
             repo: "o/r".into(),
         };
         (s, src)
+    }
+
+    #[test]
+    fn flatpak_updates_install_where_the_app_is() {
+        let user = "[Application]\nname=x\n\n[Instance]\napp-path=/home/deck/.local/share/flatpak/app/x/x86_64/master/abc/files\n";
+        let system = "[Instance]\napp-path=/var/lib/flatpak/app/x/x86_64/master/abc/files\n";
+        let b = Path::new("/home/deck/.var/app/x/cache/Romulus-x86_64.flatpak");
+        let args = flatpak_install_args(user, b);
+        assert_eq!(args[..4], ["--host", "flatpak", "install", "--user"]);
+        assert_eq!(
+            args.last().unwrap(),
+            "/home/deck/.var/app/x/cache/Romulus-x86_64.flatpak"
+        );
+        assert_eq!(flatpak_install_args(system, b)[3], "--system");
+    }
+
+    #[tokio::test]
+    async fn check_finds_the_flatpak_bundle_only_when_published() {
+        let (_s, src) = server(vec![], Some("x".into())).await;
+        let http = reqwest::Client::builder().user_agent("t").build().unwrap();
+        assert_eq!(
+            check_for(&http, &src, "0.1.0", FLATPAK_ASSET)
+                .await
+                .unwrap(),
+            None
+        );
     }
 
     #[tokio::test]

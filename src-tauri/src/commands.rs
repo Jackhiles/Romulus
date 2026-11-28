@@ -445,13 +445,26 @@ pub async fn install_update(app: AppHandle, state: State<'_, AppState>) -> Res<(
     Ok(())
 }
 
-/// Start the (new) AppImage and quit this one.
+/// Start the (new) AppImage or Flatpak and quit this one.
 #[tauri::command]
 pub fn restart_app(app: AppHandle) -> Res<()> {
-    let exe = updater::program_path().map_err(err)?;
-    // Without this copy's AppImage paths (they piled up with every restart, and carried
-    // settings like the renderer over); the new AppImage sets its own.
-    let mut cmd = launcher::host_command(&exe.to_string_lossy());
+    let flatpak_id = std::env::var("FLATPAK_ID")
+        .ok()
+        .filter(|_| launcher::env::in_flatpak());
+    let mut cmd = match flatpak_id {
+        // `flatpak run` on the host starts the version just installed.
+        Some(id) => {
+            let mut c = launcher::host_command("flatpak");
+            c.args(["run", &id]);
+            c
+        }
+        // Without this copy's AppImage paths (they piled up with every restart, and
+        // carried settings like the renderer over); the new AppImage sets its own.
+        None => {
+            let exe = updater::program_path().map_err(err)?;
+            launcher::host_command(&exe.to_string_lossy())
+        }
+    };
     // Don't hand our open files to the new copy. The AppImage runtime passes its FUSE
     // connection down without close-on-exec; if the new copy inherits it, the old
     // AppImage's mount (and runtime process) stays alive until Steam closes everything.

@@ -112,17 +112,66 @@ fn str_field(m: &[(String, Value)], key: &str) -> Option<String> {
         })
 }
 
-/// Does this shortcut entry start `exe` (Steam may store it with or without quotes)?
-fn launches(m: &[(String, Value)], exe: &str) -> bool {
+/// What the shortcut starts: the AppImage, or `flatpak run <id>` for the Flatpak.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Target {
+    /// Quoted, as Steam stores it.
+    pub exe: String,
+    pub start_dir: String,
+    pub options: String,
+    /// The Flatpak's app id, if it is one.
+    pub flatpak: Option<String>,
+}
+
+impl Target {
+    pub fn appimage(exe: &Path) -> Self {
+        Self {
+            exe: quoted(exe),
+            start_dir: exe.parent().map(quoted).unwrap_or_default(),
+            options: String::new(),
+            flatpak: None,
+        }
+    }
+
+    pub fn flatpak(id: &str) -> Self {
+        Self {
+            exe: "\"/usr/bin/flatpak\"".into(),
+            start_dir: "\"/usr/bin\"".into(),
+            options: format!("run {id}"),
+            flatpak: Some(id.to_string()),
+        }
+    }
+
+    /// This copy of Romulus.
+    pub fn current() -> std::io::Result<Self> {
+        if launcher::env::in_flatpak()
+            && let Ok(id) = std::env::var("FLATPAK_ID")
+        {
+            return Ok(Self::flatpak(&id));
+        }
+        Ok(Self::appimage(&updater::program_path()?))
+    }
+}
+
+/// Does this shortcut entry start `t` (Steam may store the exe with or without quotes)?
+/// For the Flatpak the launch options must name it too, since every Flatpak shortcut
+/// starts `/usr/bin/flatpak`.
+fn launches(m: &[(String, Value)], t: &Target) -> bool {
     let e = str_field(m, "Exe").unwrap_or_default();
-    e == exe || format!("\"{e}\"") == exe
+    let exe = e == t.exe || format!("\"{e}\"") == t.exe;
+    exe && t.flatpak.as_ref().is_none_or(|id| {
+        str_field(m, "LaunchOptions")
+            .unwrap_or_default()
+            .split_whitespace()
+            .any(|w| w == id)
+    })
 }
 
 /// Add (or update) the Romulus shortcut in a `shortcuts.vdf` image. Returns the new file
 /// and the shortcut's app id.
 pub fn add_to_vdf(
     existing: Option<&[u8]>,
-    exe: &Path,
+    target: &Target,
     icon: Option<&Path>,
 ) -> Result<(Vec<u8>, u32), String> {
     let mut root = match existing {
@@ -138,22 +187,18 @@ pub fn add_to_vdf(
     else {
         return Err("Steam's shortcuts file has an unexpected layout".into());
     };
-    let exe_q = quoted(exe);
-    let id = shortcut_app_id(&exe_q, APP_NAME);
+    let id = shortcut_app_id(&target.exe, APP_NAME);
     let entry = vec![
         ("appid".to_string(), Value::Int(id)),
         ("appname".into(), Value::Str(APP_NAME.into())),
-        ("Exe".into(), Value::Str(exe_q.clone())),
-        (
-            "StartDir".into(),
-            Value::Str(exe.parent().map(quoted).unwrap_or_default()),
-        ),
+        ("Exe".into(), Value::Str(target.exe.clone())),
+        ("StartDir".into(), Value::Str(target.start_dir.clone())),
         (
             "icon".into(),
             Value::Str(icon.map(|p| p.display().to_string()).unwrap_or_default()),
         ),
         ("ShortcutPath".into(), Value::Str(String::new())),
-        ("LaunchOptions".into(), Value::Str(String::new())),
+        ("LaunchOptions".into(), Value::Str(target.options.clone())),
         ("IsHidden".into(), Value::Int(0)),
         ("AllowDesktopConfig".into(), Value::Int(1)),
         ("AllowOverlay".into(), Value::Int(1)),
@@ -162,12 +207,15 @@ pub fn add_to_vdf(
         ("DevkitGameID".into(), Value::Str(String::new())),
         ("DevkitOverrideAppID".into(), Value::Int(0)),
         ("LastPlayTime".into(), Value::Int(0)),
-        ("FlatpakAppID".into(), Value::Str(String::new())),
+        (
+            "FlatpakAppID".into(),
+            Value::Str(target.flatpak.clone().unwrap_or_default()),
+        ),
         ("tags".into(), Value::Map(Vec::new())),
     ];
     let same = list
         .iter_mut()
-        .find(|(_, v)| matches!(v, Value::Map(m) if launches(m, &exe_q)));
+        .find(|(_, v)| matches!(v, Value::Map(m) if launches(m, target)));
     match same {
         Some((_, v)) => *v = Value::Map(entry),
         None => {
@@ -246,15 +294,14 @@ pub fn user_config_dir() -> Option<PathBuf> {
     None
 }
 
-/// The app id of the shortcut in `vdf` that starts `exe`, if there is one.
-fn find_shortcut(vdf: &[(String, Value)], exe: &Path) -> Option<u32> {
-    let exe_q = quoted(exe);
+/// The app id of the shortcut in `vdf` that starts `target`, if there is one.
+fn find_shortcut(vdf: &[(String, Value)], target: &Target) -> Option<u32> {
     let list = vdf.iter().find_map(|(k, v)| match v {
         Value::Map(list) if k.eq_ignore_ascii_case("shortcuts") => Some(list),
         _ => None,
     })?;
     list.iter().find_map(|(_, e)| match e {
-        Value::Map(m) if launches(m, &exe_q) => Some(
+        Value::Map(m) if launches(m, target) => Some(
             m.iter()
                 .find_map(|(k, v)| match v {
                     Value::Int(id) if k.eq_ignore_ascii_case("appid") => Some(*id),
@@ -262,7 +309,7 @@ fn find_shortcut(vdf: &[(String, Value)], exe: &Path) -> Option<u32> {
                 })
                 .unwrap_or_else(|| {
                     let name = str_field(m, "appname").unwrap_or_else(|| APP_NAME.into());
-                    shortcut_app_id(&exe_q, &name)
+                    shortcut_app_id(&target.exe, &name)
                 }),
         ),
         _ => None,
@@ -271,10 +318,10 @@ fn find_shortcut(vdf: &[(String, Value)], exe: &Path) -> Option<u32> {
 
 /// The Steam config folder and app id of the shortcut that starts this copy of Romulus.
 fn current_shortcut() -> Option<(PathBuf, u32)> {
-    let exe = updater::program_path().ok()?;
+    let target = Target::current().ok()?;
     let config = user_config_dir()?;
     let vdf = parse(&std::fs::read(config.join("shortcuts.vdf")).ok()?)?;
-    let id = find_shortcut(&vdf, &exe)?;
+    let id = find_shortcut(&vdf, &target)?;
     Some((config, id))
 }
 
@@ -329,6 +376,14 @@ pub fn ensure_artwork() {
 }
 
 pub fn steam_running() -> bool {
+    // A Flatpak only sees its own processes: ask the host.
+    if launcher::env::in_flatpak() {
+        return launcher::host_command("pgrep")
+            .args(["-x", "steam"])
+            .stdout(std::process::Stdio::null())
+            .status()
+            .is_ok_and(|s| s.success());
+    }
     std::fs::read_dir("/proc")
         .into_iter()
         .flatten()
@@ -372,8 +427,8 @@ const ICON_PNG: &[u8] = include_bytes!("../icons/icon.png");
 /// Add Romulus to Steam (blocking: may wait for Steam to close). `data_dir` holds the icon
 /// file the shortcut points to. Returns a message for the user.
 pub fn add_romulus(data_dir: &Path) -> Result<String, String> {
-    let exe = updater::program_path().map_err(|e| e.to_string())?;
-    if updater::is_dev_build() {
+    let target = Target::current().map_err(|e| e.to_string())?;
+    if !launcher::env::in_flatpak() && updater::is_dev_build() {
         return Err("development builds can't be added to Steam; use the AppImage".into());
     }
     if in_gaming_mode() {
@@ -390,7 +445,7 @@ pub fn add_romulus(data_dir: &Path) -> Result<String, String> {
     let result = (|| {
         let file = config.join("shortcuts.vdf");
         let existing = std::fs::read(&file).ok();
-        let (bytes, id) = add_to_vdf(existing.as_deref(), &exe, icon.as_deref())?;
+        let (bytes, id) = add_to_vdf(existing.as_deref(), &target, icon.as_deref())?;
         if let Err(e) = write_artwork(&config, id) {
             tracing::warn!("could not add Steam artwork: {e}");
         }
@@ -409,7 +464,7 @@ pub fn add_romulus(data_dir: &Path) -> Result<String, String> {
         start_steam();
     }
     result?;
-    tracing::info!("added {} to Steam", exe.display());
+    tracing::info!("added {} {} to Steam", target.exe, target.options);
     Ok(format!(
         "{APP_NAME} was added to Steam. You'll find it under Non-Steam in your library."
     ))
@@ -435,9 +490,9 @@ mod tests {
         let bytes = serialize(&other);
         assert_eq!(parse(&bytes).unwrap(), other);
 
-        let exe = Path::new("/home/deck/Applications/Romulus-x86_64.AppImage");
-        let (once, id) = add_to_vdf(Some(&bytes), exe, None).unwrap();
-        let (twice, id2) = add_to_vdf(Some(&once), exe, None).unwrap();
+        let exe = Target::appimage(Path::new("/home/deck/Applications/Romulus-x86_64.AppImage"));
+        let (once, id) = add_to_vdf(Some(&bytes), &exe, None).unwrap();
+        let (twice, id2) = add_to_vdf(Some(&once), &exe, None).unwrap();
         assert_eq!(id, id2);
         assert_eq!(
             once, twice,
@@ -453,11 +508,52 @@ mod tests {
 
     #[test]
     fn finds_the_shortcut_and_its_id() {
-        let exe = Path::new("/home/deck/Applications/Romulus-x86_64.AppImage");
-        let (bytes, id) = add_to_vdf(None, exe, None).unwrap();
+        let exe = Target::appimage(Path::new("/home/deck/Applications/Romulus-x86_64.AppImage"));
+        let (bytes, id) = add_to_vdf(None, &exe, None).unwrap();
         let vdf = parse(&bytes).unwrap();
-        assert_eq!(find_shortcut(&vdf, exe), Some(id));
-        assert_eq!(find_shortcut(&vdf, Path::new("/other")), None);
+        assert_eq!(find_shortcut(&vdf, &exe), Some(id));
+        assert_eq!(
+            find_shortcut(&vdf, &Target::appimage(Path::new("/other"))),
+            None
+        );
+    }
+
+    #[test]
+    fn flatpak_shortcut_runs_the_flatpak_and_ignores_other_flatpaks() {
+        // Another Flatpak game added to Steam the usual way.
+        let other = vec![(
+            "shortcuts".to_string(),
+            Value::Map(vec![(
+                "0".into(),
+                Value::Map(vec![
+                    ("appname".into(), Value::Str("Firefox".into())),
+                    ("Exe".into(), Value::Str("\"/usr/bin/flatpak\"".into())),
+                    (
+                        "LaunchOptions".into(),
+                        Value::Str("run org.mozilla.firefox".into()),
+                    ),
+                ]),
+            )]),
+        )];
+        let t = Target::flatpak("io.github.jackhiles.romulus");
+        let vdf = parse(&serialize(&other)).unwrap();
+        assert_eq!(find_shortcut(&vdf, &t), None);
+        let (bytes, id) = add_to_vdf(Some(&serialize(&other)), &t, None).unwrap();
+        let vdf = parse(&bytes).unwrap();
+        assert_eq!(find_shortcut(&vdf, &t), Some(id));
+        let Value::Map(list) = &vdf[0].1 else {
+            panic!()
+        };
+        assert_eq!(list.len(), 2, "Firefox's shortcut stays");
+        let Value::Map(m) = &list[1].1 else { panic!() };
+        assert_eq!(
+            str_field(m, "LaunchOptions").as_deref(),
+            Some("run io.github.jackhiles.romulus")
+        );
+        assert_eq!(
+            str_field(m, "FlatpakAppID").as_deref(),
+            Some("io.github.jackhiles.romulus")
+        );
     }
 
     #[test]
@@ -477,7 +573,12 @@ mod tests {
 
     #[test]
     fn empty_file_gets_a_list() {
-        let (bytes, _) = add_to_vdf(None, Path::new("/x/Romulus.AppImage"), None).unwrap();
+        let (bytes, _) = add_to_vdf(
+            None,
+            &Target::appimage(Path::new("/x/Romulus.AppImage")),
+            None,
+        )
+        .unwrap();
         let root = parse(&bytes).unwrap();
         assert_eq!(root[0].0, "shortcuts");
     }

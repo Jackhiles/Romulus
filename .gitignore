@@ -3,3 +3,8 @@ node_modules/
 /ui/dist
 /src-tauri/gen
 *.AppImage
+*.flatpak
+/flatpak/romulus.deb
+/flatpak-build
+/flatpak-repo
+.flatpak-builder
