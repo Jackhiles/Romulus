@@ -3,7 +3,7 @@ resolver = "3"
 members = ["src-tauri", "crates/romm-api", "crates/library-cache", "crates/updater", "crates/launcher", "crates/sync", "crates/music"]
 
 [workspace.package]
-version = "0.6.0"
+version = "0.7.0"
 edition = "2024"
 license = "MIT"
 
