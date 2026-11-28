@@ -46,6 +46,7 @@ install it from Settings.
 | LB / RB | Page up / down; previous / next game on the detail page |
 | LT / RT | Jump to previous / next letter; on a game's page, switch between its versions |
 | RT (systems screen) | Surprise me: a random game (Select on its page picks another) |
+| LT (systems screen) | Discover: flick through random games. A opens one, Y keeps it (adds it to Favourites), X skips, Select picks from the whole library, this Deck or games never played here |
 | Y (game page) | RetroAchievements list |
 | ☰ (Start, game page) | Add to / remove from Favourites (on RomM) |
 | ☰ (Start) | Settings |

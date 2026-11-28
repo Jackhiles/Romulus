@@ -4,7 +4,7 @@
 use crate::app::{self, APP_NAME, RELEASE_REPO, VERSION};
 use crate::secrets::Store;
 use crate::state::{AppState, lock};
-use library_cache::{CollectionRow, PlatformRow, RefreshProgress, RomRow, SortOrder};
+use library_cache::{CollectionRow, DiscoverPool, PlatformRow, RefreshProgress, RomRow, SortOrder};
 use romm_api::{DeviceInfo, DevicePoll};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -266,6 +266,12 @@ pub async fn versions(state: State<'_, AppState>, rom_id: i64) -> Res<Vec<RomRow
 #[tauri::command]
 pub async fn random_rom(state: State<'_, AppState>) -> Res<Option<RomRow>> {
     with_cache(&state, |c| c.random_rom()).await
+}
+
+/// Discovery mode: a shuffled list of games to flick through.
+#[tauri::command]
+pub async fn discover(state: State<'_, AppState>, pool: DiscoverPool) -> Res<Vec<i64>> {
+    with_cache(&state, move |c| c.discover(pool, 500)).await
 }
 
 /// RomM collections, favourites first.

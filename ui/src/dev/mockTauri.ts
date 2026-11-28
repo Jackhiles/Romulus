@@ -116,6 +116,11 @@ const handlers: Record<string, (a: any) => unknown> = {
   is_favourite: ({ romId }) => favourites.has(romId),
   set_favourite: ({ romId, on }) => (on ? favourites.add(romId) : favourites.delete(romId), favourites.has(romId)),
   random_rom: () => row(lib.roms[Math.floor(Math.random() * lib.roms.length)]),
+  discover: ({ pool }) =>
+    lib.roms
+      .filter((r) => r.cover_small && (pool !== 'installed' || installed.has(r.id)))
+      .map((r) => r.id)
+      .sort(() => Math.random() - 0.5),
   preview_music: () => false,
   stop_music: () => null,
   achievements: () => ({ total: 3, earned: 1, earned_hardcore: 0, points_total: 30, points_earned: 10, list: [

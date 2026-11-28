@@ -9,6 +9,7 @@
   import { device, initDevice, loadInstalled } from './lib/play.svelte'
   import { toast } from './lib/toast.svelte'
   import Detail from './screens/Detail.svelte'
+  import Discover from './screens/Discover.svelte'
   import Games from './screens/Games.svelte'
   import Platforms from './screens/Platforms.svelte'
   import Search from './screens/Search.svelte'
@@ -85,6 +86,8 @@
         <Games bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'detail'}
         <Detail romId={top.romId} siblings={top.siblings} surprise={top.surprise} />
+      {:else if top.name === 'discover'}
+        <Discover bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'search'}
         <Search bind:entry={nav.stack[nav.stack.length - 1]} />
       {:else if top.name === 'achievements'}

@@ -149,6 +149,18 @@ pub enum SortOrder {
     Newest,
 }
 
+/// Which games discovery mode draws from.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DiscoverPool {
+    #[default]
+    All,
+    /// Downloaded onto this device.
+    Installed,
+    /// Never started on this device.
+    Unplayed,
+}
+
 pub struct Cache {
     conn: Connection,
 }
@@ -744,6 +756,31 @@ impl Cache {
         Ok(self.conn.query_row(&sql, [], rom_row).optional()?)
     }
 
+    /// Discovery mode: up to `limit` games with cover art in random order. Versions of a
+    /// game (same title and system) count once; the installed version is preferred.
+    pub fn discover(&self, pool: DiscoverPool, limit: usize) -> Result<Vec<i64>> {
+        let having = match pool {
+            DiscoverPool::All => "1",
+            DiscoverPool::Installed => "COUNT(installs.rom_id) > 0",
+            DiscoverPool::Unplayed => "COUNT(played.rom_id) = 0",
+        };
+        let sql = format!(
+            "SELECT COALESCE(MIN(CASE WHEN installs.rom_id IS NOT NULL THEN roms.id END), MIN(roms.id))
+             FROM roms
+             LEFT JOIN installs ON installs.rom_id = roms.id
+             LEFT JOIN played ON played.rom_id = roms.id
+             WHERE roms.cover_small IS NOT NULL
+             GROUP BY roms.platform_id, roms.title
+             HAVING {having}
+             ORDER BY RANDOM() LIMIT ?1"
+        );
+        let mut st = self.conn.prepare(&sql)?;
+        let ids = st
+            .query_map([limit as i64], |r| r.get(0))?
+            .collect::<rusqlite::Result<Vec<i64>>>()?;
+        Ok(ids)
+    }
+
     /// Replace all cached collections with the server's.
     pub fn replace_collections(&mut self, list: &[Collection]) -> Result<()> {
         let tx = self.conn.transaction()?;
@@ -951,6 +988,51 @@ pub(crate) mod tests {
         assert!(ids.contains(&1424) && ids.contains(&7));
         assert_eq!(c.group_of(1426).unwrap().unwrap().parts, vec![1425, 1426]);
         assert_eq!(c.search("alone", 10).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn discover_pools() {
+        let mut c = Cache::open_in_memory().unwrap();
+        let covered = |id: i64, platform: i64, name: &str| -> Rom {
+            serde_json::from_value(json!({
+                "id": id, "platform_id": platform, "name": name,
+                "fs_name": format!("{id}.bin"), "path_cover_small": "/c.png"
+            }))
+            .unwrap()
+        };
+        c.upsert_roms(&[
+            covered(1, 1, "Alpha"),
+            covered(2, 1, "Alpha"), // another version
+            covered(3, 1, "Beta"),
+            covered(4, 2, "Alpha"), // same title, other system
+            rom(5, 1, "No cover"),
+        ])
+        .unwrap();
+        let sorted = |mut v: Vec<i64>| {
+            v.sort();
+            v
+        };
+        assert_eq!(
+            sorted(c.discover(DiscoverPool::All, 100).unwrap()),
+            [1, 3, 4]
+        );
+        assert_eq!(c.discover(DiscoverPool::All, 2).unwrap().len(), 2);
+        assert!(c.discover(DiscoverPool::Installed, 100).unwrap().is_empty());
+
+        c.set_install(2, "{}", 10).unwrap();
+        c.mark_played_now(3).unwrap();
+        // The installed version stands for its game.
+        assert_eq!(c.discover(DiscoverPool::Installed, 100).unwrap(), [2]);
+        assert_eq!(
+            sorted(c.discover(DiscoverPool::All, 100).unwrap()),
+            [2, 3, 4]
+        );
+        assert_eq!(
+            sorted(c.discover(DiscoverPool::Unplayed, 100).unwrap()),
+            [2, 4]
+        );
+        c.mark_played_now(1).unwrap();
+        assert_eq!(c.discover(DiscoverPool::Unplayed, 100).unwrap(), [4]);
     }
 
     #[test]

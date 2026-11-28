@@ -98,6 +98,9 @@
       case 'rt':
         surprise()
         return true
+      case 'lt':
+        push({ name: 'discover' })
+        return true
       case 'select':
         view = VIEWS[(VIEWS.indexOf(view) + 1) % VIEWS.length]
         api.updateSettings({ systems_view: view }).catch(() => {})
@@ -123,6 +126,7 @@
     ['a', 'Open'],
     ['y', 'Search'],
     ['x', 'Sync'],
+    ['lt', 'Discover'],
     ['rt', 'Surprise me'],
     ['select', NEXT_VIEW[view]],
     ['start', 'Settings'],

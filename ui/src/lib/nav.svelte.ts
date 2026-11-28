@@ -1,6 +1,6 @@
 // Screen stack: push to go deeper, B pops. Only the top screen is mounted; each entry
 // keeps the screen's position (focused index, sort, query) so going back restores it.
-import type { Sort } from './api'
+import type { DiscoverPool, Sort } from './api'
 
 interface Saved {
   index?: number
@@ -15,6 +15,7 @@ export type Screen = Saved &
     | { name: 'games'; platformId: number; platformName: string; platformSlug: string }
     | { name: 'detail'; romId: number; siblings?: number[]; surprise?: boolean }
     | { name: 'search' }
+    | { name: 'discover'; pool?: DiscoverPool; ids?: number[] }
     | { name: 'settings' }
     | { name: 'bios' }
     | { name: 'downloads' }

@@ -78,6 +78,7 @@ export interface Settings {
 
 export type SystemsView = 'carousel' | 'list' | 'grid'
 export type { GamesView } from './views'
+export type DiscoverPool = 'all' | 'installed' | 'unplayed'
 
 export type Sort = 'title' | 'newest'
 
@@ -102,6 +103,7 @@ export const api = {
   search: (query: string) => invoke<Rom[]>('search', { query }),
   collection: (kind: 'recent' | 'installed') => invoke<Rom[]>('collection', { kind }),
   randomRom: () => invoke<Rom | null>('random_rom'),
+  discover: (pool: DiscoverPool) => invoke<number[]>('discover', { pool }),
   versions: (romId: number) => invoke<Rom[]>('versions', { romId }),
   refreshLibrary: () => invoke<boolean>('refresh_library'),
   checkUpdate: () => invoke<Release | null>('check_update'),
