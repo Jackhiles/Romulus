@@ -11,6 +11,9 @@ runtime: org.gnome.Platform
 runtime-version: '49'
 sdk: org.gnome.Sdk
 command: romulus
+# Ubuntu 22.04's flatpak-builder runs appstream-compose, which newer SDKs don't have; a
+# bundle doesn't need the composed catalogue.
+appstream-compose: false
 finish-args:
   - --share=ipc
   - --share=network
