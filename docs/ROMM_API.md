@@ -54,6 +54,8 @@ libraries.
 | ROM files | `GET /roms/{id}/files` | `RomFileSchema[]` with sizes and hashes |
 | Download | `GET /roms/{id}/content/{file_name}?file_ids=` | Single file, or zip + .m3u for multi-file ROMs; `HEAD` gives the size for the disk check; Range support to be tested for resume |
 | Last played | `PUT /roms/{id}/props?update_last_played=true` | |
+| Play status | `PUT /roms/{id}/props` with `RomUserData` (`now_playing`, `backlogged`, `status`, `rating` 0-10) | Returns `RomUserSchema`; the list schema already carries it as `rom_user`. Needs `roms.user.write` |
+| Manuals | `GET /assets/romm/resources/<path_manual>` | `has_manual`/`path_manual` are in the list schema (`roms/2/1/manual/1.pdf`); 5,340 of 6,600 games had one (2026-11-28) |
 | Playtime | `POST /play-sessions` | `{device_id, sessions:[{rom_id, start_time, end_time, duration_ms}]}` |
 | Register this Deck | `POST /devices` | Returns `device_id` (device pairing already returns one) |
 

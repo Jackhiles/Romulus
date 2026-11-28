@@ -1,12 +1,14 @@
 <script lang="ts">
   import { onDestroy, untrack } from 'svelte'
+  import Confirm from '../components/Confirm.svelte'
   import Footer from '../components/Footer.svelte'
   import GameBrowser from '../components/GameBrowser.svelte'
   import Header from '../components/Header.svelte'
-  import { api, type GamesView, type Platform, type Rom, type Sort } from '../lib/api'
-  import { hueOf } from '../lib/format'
+  import { api, games, type DownloadAllPlan, type GamesView, type Platform, type Rom, type Sort } from '../lib/api'
+  import { hueOf, size } from '../lib/format'
+  import { toast } from '../lib/toast.svelte'
   import { onAction, type Action } from '../lib/input'
-  import { gamesOf, isCollection, systemsWithCollections } from '../lib/collections'
+  import { INSTALLED, gamesOf, isCollection, systemsWithCollections } from '../lib/collections'
   import { library } from '../lib/library.svelte'
   import { device } from '../lib/play.svelte'
   import { push, type Screen } from '../lib/nav.svelte'
@@ -73,12 +75,39 @@
     view = viewFor(p.slug)
   }
 
+  // "Download all" on a collection (not "On this Deck": those are here already).
+  const canDownloadAll = $derived(isCollection(g.platformId) && g.platformId !== INSTALLED)
+  let planAll = $state<DownloadAllPlan | null>(null)
+
+  async function askDownloadAll() {
+    try {
+      const p = await games.planDownloadAll(roms.map((r) => r.id))
+      if (p.rom_ids.length === 0) toast('Every game here is on this Deck or downloading already.')
+      else if (!p.fits)
+        toast(`Not enough room: ${p.rom_ids.length} games need ${size(p.bytes)}, ${size(p.free_bytes)} is free.`, 'error', 8000)
+      else planAll = p
+    } catch (e) {
+      toast(String(e), 'error', 6000)
+    }
+  }
+
+  async function downloadAll(p: DownloadAllPlan) {
+    planAll = null
+    try {
+      const n = await games.downloadAll(p.rom_ids)
+      toast(`${n} ${n === 1 ? 'game' : 'games'} added to Downloads`)
+    } catch (e) {
+      toast(String(e), 'error', 6000)
+    }
+  }
+
   function open(i: number) {
     const r = roms[i]
     if (r) push({ name: 'detail', romId: r.id, siblings: roms.map((x) => x.id) })
   }
 
   const off = onAction(({ action }) => {
+    if (planAll) return false
     switch (action) {
       // Reached only when the browser doesn't use them: left/right in the list,
       // up/down in the carousel.
@@ -104,7 +133,8 @@
         push({ name: 'search' })
         return true
       case 'start':
-        push({ name: 'settings' })
+        if (canDownloadAll) askDownloadAll()
+        else push({ name: 'settings' })
         return true
     }
     return false
@@ -118,6 +148,7 @@
     ['x', sort === 'title' ? 'Newest first' : 'A–Z'],
     ['select', GAMES_VIEW_LABEL[nextGamesView(view)]],
     ['y', 'Search'],
+    ...(canDownloadAll && roms.length ? ([['start', 'Download all']] as [Action, string][]) : []),
     ['b', 'Back'],
   ])
 </script>
@@ -133,3 +164,12 @@
   tag={isCollection(g.platformId) ? (r) => slugOf[r.platform_id] ?? '' : undefined}
 />
 <Footer {hints} />
+{#if planAll}
+  <Confirm
+    title="Download {planAll.rom_ids.length} {planAll.rom_ids.length === 1 ? 'game' : 'games'}?"
+    message="About {size(planAll.bytes)} from RomM; {size(planAll.free_bytes)} is free. They download one after another, and continue after a restart."
+    confirm="Download all"
+    onconfirm={() => planAll && downloadAll(planAll)}
+    oncancel={() => (planAll = null)}
+  />
+{/if}

@@ -25,6 +25,7 @@
   "dependencies": {
     "@tauri-apps/api": "^2.12.5",
     "@tauri-apps/plugin-clipboard-manager": "^2.5.0",
+    "pdfjs-dist": "^4.10.38",
     "qrcode-generator": "^2.0.4"
   }
 }

@@ -16,6 +16,8 @@ export type Screen = Saved &
     | { name: 'detail'; romId: number; siblings?: number[]; surprise?: boolean }
     | { name: 'search' }
     | { name: 'discover'; pool?: DiscoverPool; ids?: number[] }
+    | { name: 'manual'; title: string; path: string }
+    | { name: 'storage' }
     | { name: 'settings' }
     | { name: 'bios' }
     | { name: 'downloads' }

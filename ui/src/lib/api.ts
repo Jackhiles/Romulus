@@ -101,7 +101,7 @@ export const api = {
   roms: (platformId: number, order: Sort) => invoke<Rom[]>('roms', { platformId, order }),
   rom: (id: number) => invoke<RomDetail | null>('rom', { id }),
   search: (query: string) => invoke<Rom[]>('search', { query }),
-  collection: (kind: 'recent' | 'installed') => invoke<Rom[]>('collection', { kind }),
+  collection: (kind: 'recent' | 'installed' | 'playing' | 'backlog') => invoke<Rom[]>('collection', { kind }),
   randomRom: () => invoke<Rom | null>('random_rom'),
   discover: (pool: DiscoverPool) => invoke<number[]>('discover', { pool }),
   versions: (romId: number) => invoke<Rom[]>('versions', { romId }),
@@ -304,7 +304,35 @@ export const bios = {
     invoke<{ installed: number; failed: string[] }>('download_bios', { platformId }),
 }
 
+export const romUser = {
+  /** Change this user's RomM data for a game; returns RomM's new `rom_user`. */
+  set: (romId: number, patch: Record<string, unknown>) => invoke<unknown>('set_rom_user', { romId, patch }),
+}
+
+export interface DownloadAllPlan {
+  rom_ids: number[]
+  bytes: number
+  free_bytes: number
+  fits: boolean
+}
+
+export interface InstalledGame extends Rom {
+  platform: string
+  disk_bytes: number
+  installed_at: number
+  last_played: number | null
+}
+
+export interface Storage {
+  free_bytes: number
+  total_bytes: number
+  games: InstalledGame[]
+}
+
 export const games = {
+  planDownloadAll: (romIds: number[]) => invoke<DownloadAllPlan>('plan_download_all', { romIds }),
+  downloadAll: (romIds: number[]) => invoke<number>('download_all', { romIds }),
+  storage: () => invoke<Storage>('storage'),
   status: (romId: number) => invoke<InstallStatus>('install_status', { romId }),
   installedIds: () => invoke<number[]>('installed_ids'),
   download: (romId: number) => invoke<void>('download_rom', { romId }),

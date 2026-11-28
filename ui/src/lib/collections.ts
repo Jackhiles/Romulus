@@ -1,12 +1,21 @@
 // Collections shown before the real systems, like ES-DE's: the automatic "Continue
-// playing" and "On this Deck", then RomM's Favourites and the user's RomM collections.
+// playing" and "On this Deck", the user's RomM play status lists ("Now playing",
+// "Backlog"), then RomM's Favourites and the user's RomM collections.
 // They use negative ids so they can't clash with RomM platforms.
 import { api, collections, type Platform, type Rom, type RommCollection, type Sort } from './api'
 
 export const RECENT = -1
 export const INSTALLED = -2
+export const PLAYING = -3
+export const BACKLOG = -4
 
-const KIND: Record<number, 'recent' | 'installed'> = { [RECENT]: 'recent', [INSTALLED]: 'installed' }
+type Kind = 'recent' | 'installed' | 'playing' | 'backlog'
+const KIND: Record<number, Kind> = {
+  [RECENT]: 'recent',
+  [INSTALLED]: 'installed',
+  [PLAYING]: 'playing',
+  [BACKLOG]: 'backlog',
+}
 
 /** RomM collection ids map below these, so regular and smart ones can't clash. */
 const REGULAR_BASE = -1000
@@ -45,11 +54,13 @@ export interface Systems {
 
 /** Collections (when not empty) followed by the platforms. */
 export async function systemsWithCollections(perCover = 6): Promise<Systems> {
-  const [platforms, covers, recent, installed, romm] = await Promise.all([
+  const [platforms, covers, recent, installed, playing, backlog, romm] = await Promise.all([
     api.platforms(),
     api.platformCovers(perCover),
     api.collection('recent').catch(() => [] as Rom[]),
     api.collection('installed').catch(() => [] as Rom[]),
+    api.collection('playing').catch(() => [] as Rom[]),
+    api.collection('backlog').catch(() => [] as Rom[]),
     collections.list().catch(() => [] as RommCollection[]),
   ])
   const rommGames = await Promise.all(
@@ -63,6 +74,8 @@ export async function systemsWithCollections(perCover = 6): Promise<Systems> {
   }
   add(RECENT, 'recent', 'Continue playing', recent)
   add(INSTALLED, 'installed', 'On this Deck', installed)
+  add(PLAYING, 'playing', 'Now playing', playing)
+  add(BACKLOG, 'backlog', 'Backlog', backlog)
   romm.forEach((c, i) => {
     const name = c.is_favorite ? 'Favourites' : c.name
     add(collectionId(c), c.is_favorite ? 'favourites' : name.toLowerCase().slice(0, 12), name, rommGames[i])

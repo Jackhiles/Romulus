@@ -52,7 +52,8 @@ function emit(event: string, payload: unknown) {
 }
 
 // Device state: one game starts installed, downloads take a few seconds.
-const installed = new Set<number>([lib.roms[0]?.id])
+const installed = new Set<number>([lib.roms[0]?.id, lib.roms[5]?.id, lib.roms[9]?.id])
+const userData = new Map<number, Record<string, unknown>>()
 const conflicted = new Set<number>()
 const favourites = new Set<number>([lib.roms[40]?.id, lib.roms[120]?.id].filter((x): x is number => x !== undefined))
 const downloading = new Map<number, ReturnType<typeof setInterval>>()
@@ -104,7 +105,30 @@ const handlers: Record<string, (a: any) => unknown> = {
   collection: ({ kind }) =>
     kind === 'installed'
       ? lib.roms.filter((r) => installed.has(r.id)).map(row)
-      : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
+      : kind === 'playing' || kind === 'backlog'
+        ? lib.roms
+            .filter((r) => userData.get(r.id)?.[kind === 'playing' ? 'now_playing' : 'backlogged'])
+            .map(row)
+        : [lib.roms[40], lib.roms[120], lib.roms[200], lib.roms[7]].filter(Boolean).map(row),
+  set_rom_user: ({ romId, patch }) => {
+    const u = { now_playing: false, backlogged: false, status: null, rating: 0, ...userData.get(romId), ...patch }
+    userData.set(romId, u)
+    const r = lib.roms.find((x) => x.id === romId)
+    if (r) (r.data as Record<string, unknown>).rom_user = u
+    return u
+  },
+  plan_download_all: ({ romIds }) => {
+    const ids = (romIds as number[]).filter((id) => !installed.has(id))
+    return { rom_ids: ids, bytes: ids.length * 3e8, free_bytes: 4e10, fits: true }
+  },
+  download_all: ({ romIds }) => (romIds as number[]).length,
+  storage: () => ({
+    free_bytes: 3.2e10,
+    total_bytes: 1e12,
+    games: lib.roms
+      .filter((r) => installed.has(r.id))
+      .map((r, i) => ({ ...row(r), platform: 'Arcade', disk_bytes: 5e8 / (i + 1), installed_at: 1795800000, last_played: i ? null : 1795830000 })),
+  }),
   downloads: () => [...downloading.keys()].map((id, i) => ({ rom_id: id, title: lib.roms.find((r) => r.id === id)?.title ?? '?', platform: 'Arcade', state: i === 0 ? 'active' : 'queued', done: 1e8, total: 7e8 })),
   versions: () => [],
   romm_collections: () => [

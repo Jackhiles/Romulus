@@ -382,6 +382,87 @@ pub async fn remove_rom(state: State<'_, AppState>, rom_id: i64) -> Res<()> {
     Ok(())
 }
 
+#[derive(Serialize)]
+pub struct DownloadAllPlan {
+    /// Games not on the device and not already queued.
+    rom_ids: Vec<i64>,
+    bytes: u64,
+    free_bytes: u64,
+    fits: bool,
+}
+
+/// What downloading all of `rom_ids` would take (for "Download all" on a collection).
+#[tauri::command]
+pub async fn plan_download_all(
+    state: State<'_, AppState>,
+    rom_ids: Vec<i64>,
+) -> Res<DownloadAllPlan> {
+    let rd = retrodeck(&state).ok_or("RetroDECK was not found")?;
+    let (_, cache) = session_parts(&state).await?;
+    let queued: std::collections::HashSet<i64> = lock(&state.downloads).keys().copied().collect();
+    let (ids, bytes) = {
+        let c = lock(&cache);
+        let installed: std::collections::HashSet<i64> =
+            c.installed_ids().map_err(err)?.into_iter().collect();
+        let mut ids = Vec::new();
+        let mut bytes = 0u64;
+        for id in rom_ids {
+            if installed.contains(&id) || queued.contains(&id) || ids.contains(&id) {
+                continue;
+            }
+            if let Some((row, _)) = c.rom(id).map_err(err)? {
+                bytes += row.size_bytes.max(0) as u64;
+                ids.push(id);
+            }
+        }
+        (ids, bytes)
+    };
+    let (free, _) = launcher::install::space(&rd.roms).map_err(err)?;
+    Ok(DownloadAllPlan {
+        rom_ids: ids,
+        bytes,
+        free_bytes: free,
+        fits: launcher::install::fits(bytes, free),
+    })
+}
+
+/// Queue every game in `rom_ids` (from [`plan_download_all`]).
+#[tauri::command]
+pub async fn download_all(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    rom_ids: Vec<i64>,
+) -> Res<usize> {
+    retrodeck(&state).ok_or("RetroDECK was not found")?;
+    let (_, cache) = session_parts(&state).await?;
+    for &id in &rom_ids {
+        enqueue(&app, &state, &cache, id);
+    }
+    tracing::info!("queued {} downloads", rom_ids.len());
+    Ok(rom_ids.len())
+}
+
+#[derive(Serialize)]
+pub struct Storage {
+    free_bytes: u64,
+    total_bytes: u64,
+    games: Vec<library_cache::InstalledGame>,
+}
+
+/// The drive RetroDECK's games are on, and the games Romulus put there, largest first.
+#[tauri::command]
+pub async fn storage(state: State<'_, AppState>) -> Res<Storage> {
+    let rd = retrodeck(&state).ok_or("RetroDECK was not found")?;
+    let (_, cache) = session_parts(&state).await?;
+    let games = lock(&cache).installed_games().map_err(err)?;
+    let (free_bytes, total_bytes) = launcher::install::space(&rd.roms).map_err(err)?;
+    Ok(Storage {
+        free_bytes,
+        total_bytes,
+        games,
+    })
+}
+
 #[derive(Serialize, Clone)]
 #[serde(tag = "stage", rename_all = "snake_case")]
 enum GameEvent {

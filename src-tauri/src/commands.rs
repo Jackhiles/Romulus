@@ -4,7 +4,9 @@
 use crate::app::{self, APP_NAME, RELEASE_REPO, VERSION};
 use crate::secrets::Store;
 use crate::state::{AppState, lock};
-use library_cache::{CollectionRow, DiscoverPool, PlatformRow, RefreshProgress, RomRow, SortOrder};
+use library_cache::{
+    CollectionRow, DiscoverPool, PlatformRow, RefreshProgress, RomRow, SortOrder, UserList,
+};
 use romm_api::{DeviceInfo, DevicePoll};
 use serde::Serialize;
 use std::sync::atomic::Ordering;
@@ -305,6 +307,46 @@ fn collection_err(e: romm_api::Error) -> String {
     }
 }
 
+/// This user's RomM data for a game (`rom_user`: now playing, backlog, status, rating),
+/// from the cache.
+#[tauri::command]
+pub async fn rom_user(state: State<'_, AppState>, rom_id: i64) -> Res<Option<serde_json::Value>> {
+    with_cache(&state, move |c| c.rom_user(rom_id)).await
+}
+
+/// Change this user's RomM data for a game (only the fields in `patch`), then cache what
+/// RomM returns.
+#[tauri::command]
+pub async fn set_rom_user(
+    state: State<'_, AppState>,
+    rom_id: i64,
+    patch: serde_json::Value,
+) -> Res<serde_json::Value> {
+    const FIELDS: &[&str] = &["now_playing", "backlogged", "status", "rating"];
+    let ok = patch
+        .as_object()
+        .is_some_and(|o| !o.is_empty() && o.keys().all(|k| FIELDS.contains(&k.as_str())));
+    if !ok {
+        return Err("unsupported game data change".into());
+    }
+    let (client, cache) = {
+        let session = state.session.read().await;
+        let s = session.as_ref().ok_or("no server set")?;
+        (s.client.clone(), s.cache.clone())
+    };
+    let user = client
+        .update_rom_user(rom_id, &patch)
+        .await
+        .map_err(|e| match e {
+            romm_api::Error::Forbidden(_) => {
+                "RomM didn't allow this change: sign out in Settings and pair again".to_string()
+            }
+            e => e.to_string(),
+        })?;
+    lock(&cache).set_rom_user(rom_id, &user).map_err(err)?;
+    Ok(user)
+}
+
 /// Add a game to Favourites on RomM, or take it out, creating the collection the first
 /// time. Returns whether it is a favourite now.
 #[tauri::command]
@@ -335,6 +377,8 @@ pub async fn collection(state: State<'_, AppState>, kind: String) -> Res<Vec<Rom
     match kind.as_str() {
         "recent" => with_cache(&state, |c| c.recently_played(60)).await,
         "installed" => with_cache(&state, |c| c.installed_roms()).await,
+        "playing" => with_cache(&state, |c| c.user_list(UserList::Playing)).await,
+        "backlog" => with_cache(&state, |c| c.user_list(UserList::Backlog)).await,
         _ => Err("unknown collection".into()),
     }
 }

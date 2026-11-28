@@ -49,7 +49,8 @@ install it from Settings.
 | RT (systems screen) | Surprise me: a random game (Select on its page picks another) |
 | LT (systems screen) | Discover: flick through random games. A opens one, Y keeps it (adds it to Favourites), X skips, Select picks from the whole library, this Deck or games never played here |
 | Y (game page) | RetroAchievements list |
-| ☰ (Start, game page) | Add to / remove from Favourites (on RomM) |
+| ☰ (Start, game page) | Game menu: Favourite, Now playing, Backlog, status (finished, completed 100%, ...), your rating and the manual, all saved on RomM |
+| ☰ (Start, in a collection) | Download every game in it (after checking they fit) |
 | ☰ (Start) | Settings |
 
 ## Where files go

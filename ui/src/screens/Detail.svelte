@@ -7,10 +7,13 @@
   import Cover from '../components/Cover.svelte'
   import Footer from '../components/Footer.svelte'
   import GameInfo from '../components/GameInfo.svelte'
+  import Menu, { type MenuRow } from '../components/Menu.svelte'
+  import { NO_USER, nextRating, nextStatus, readUser, stars, statusLabel, userTags, type RomUser } from '../lib/playStatus'
   import {
     achievements,
     api,
     collections,
+    romUser,
     music,
     assetUrl,
     type Achievements,
@@ -46,6 +49,44 @@
   let versions = $state<Rom[]>([])
   let fav = $state(false)
   let favBusy = $state(false)
+  let user = $state<RomUser>({ ...NO_USER })
+  let menuOpen = $state(false)
+
+  /** Change the play status on RomM: shown at once, undone if RomM refuses. */
+  async function setUser(patch: Partial<RomUser>) {
+    const want = id
+    const before = user
+    user = { ...user, ...patch }
+    try {
+      const now = readUser(await romUser.set(want, patch))
+      if (want === id) user = now
+    } catch (e) {
+      if (want === id) user = before
+      toast(String(e), 'error', 8000)
+    }
+  }
+
+  const manualPath = $derived(
+    rom?.data?.has_manual && typeof rom.data.path_manual === 'string' && rom.data.path_manual
+      ? `/assets/romm/resources/${rom.data.path_manual.replace(/^\/+/, '')}`
+      : null,
+  )
+
+  const menuRows = $derived.by<MenuRow[]>(() => {
+    const rows: MenuRow[] = [
+      { label: 'Favourite', value: fav ? 'Yes' : 'No', run: toggleFavourite, stay: true },
+      { label: 'Now playing', value: user.now_playing ? 'Yes' : 'No', run: () => setUser({ now_playing: !user.now_playing }), stay: true },
+      { label: 'Backlog', value: user.backlogged ? 'Yes' : 'No', run: () => setUser({ backlogged: !user.backlogged }), stay: true },
+      { label: 'Status', value: statusLabel(user.status), cycle: (d) => setUser({ status: nextStatus(user.status, d) }) },
+      { label: 'Your rating', value: stars(user.rating), cycle: (d) => setUser({ rating: nextRating(user.rating, d) }) },
+    ]
+    if (manualPath && rom) {
+      const title = rom.title
+      const path = manualPath
+      rows.push({ label: 'Manual', value: 'Read', run: () => push({ name: 'manual', title, path }) })
+    }
+    return rows
+  })
 
   $effect(() => {
     const want = id
@@ -139,6 +180,7 @@
     api.rom(want).then((r) => {
       if (want !== id) return
       rom = r
+      user = readUser(r?.data?.rom_user)
       shot = 0
       shots = []
       const paths = screenshots(r).slice(0, 8)
@@ -226,7 +268,7 @@
         switchVersion(action === 'rt' ? 1 : -1)
         return true
       case 'start':
-        toggleFavourite()
+        if (rom) menuOpen = true
         return true
       case 'select':
         // Opened by "Surprise me": another random game.
@@ -267,7 +309,7 @@
     if (ra) h.push(['y', 'Achievements'])
     if (versions.length > 1) h.push(['rt', 'Version'])
     if (surprise) h.push(['select', 'Another'])
-    if (rom) h.push(['start', fav ? 'Unfavourite' : 'Favourite'])
+    if (rom) h.push(['start', 'Menu'])
     h.push(['b', 'Back'])
     return h
   })
@@ -305,6 +347,7 @@
               <span class="on-device">On this Deck</span>
             {/if}
             {#if fav}<span class="fav">★ Favourite</span>{/if}
+            {#each userTags(user) as t (t)}<span class="user-tag">{t}</span>{/each}
             {#if status?.state === 'unavailable'}<span class="reason">{status.reason}</span>{/if}
           {/if}
           {#if shots.length > 1}
@@ -335,6 +378,9 @@
 <Footer {hints} />
 {#if conflict && rom}
   <SaveConflict title={rom.title} info={conflict} onchoose={(c) => play(c)} oncancel={() => (conflict = null)} />
+{/if}
+{#if menuOpen && rom}
+  <Menu title={rom.title} rows={menuRows} onclose={() => (menuOpen = false)} />
 {/if}
 {#if confirmRemove && rom}
   <Confirm
@@ -450,6 +496,13 @@
   .fav {
     color: #f5c451;
     font-size: 14px;
+  }
+  .user-tag {
+    font-size: 13px;
+    padding: 2px 10px;
+    border-radius: 999px;
+    background: rgb(255 255 255 / 0.1);
+    color: var(--text-2);
   }
   .progress {
     display: flex;
